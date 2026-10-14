@@ -27,11 +27,22 @@ async function api(path: string, init: RequestInit = {}) {
   if (!r.ok) throw new Error(`Sheets ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json();
 }
-const rng = (a: string) => encodeURIComponent(`${TAB()}!${a}`);
+// Nama tab sebenarnya di Sheet (dicari tanpa membedakan huruf besar kecil; dibuat otomatis kalau belum ada).
+let tabName = "";
+const q = (n: string) => `'${n.replace(/'/g, "''")}'`;
+const rng = (a: string) => encodeURIComponent(`${q(tabName || TAB())}!${a}`);
 
 let headerOk = false;
 async function ensureHeader() {
   if (headerOk) return;
+  const meta = await api(`?fields=sheets.properties(sheetId,title)`);
+  const titles: string[] = (meta.sheets || []).map((x: { properties: { title: string } }) => x.properties.title);
+  const found = titles.find((t) => t.toLowerCase() === TAB().toLowerCase());
+  if (found) tabName = found;
+  else {
+    await api(`:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: TAB() } } }] }) });
+    tabName = TAB();
+  }
   const d = await api(`/values/${rng("A1:G1")}`);
   if (!d.values || d.values[0]?.[0] !== "key") {
     await api(`/values/${rng("A1:G1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [HEADER] }) });
@@ -64,8 +75,8 @@ export async function updateRow(row: number, key: string, r: Omit<Row, "row">) {
 }
 export async function deleteRow(row: number) {
   const meta = await api(`?fields=sheets.properties(sheetId,title)`);
-  const sh = (meta.sheets || []).find((s: { properties: { title: string } }) => s.properties.title === TAB());
-  if (!sh) throw new Error(`Tab "${TAB()}" tidak ditemukan`);
+  const sh = (meta.sheets || []).find((s: { properties: { title: string } }) => s.properties.title === (tabName || TAB()));
+  if (!sh) throw new Error(`Tab "${tabName || TAB()}" tidak ditemukan`);
   await api(`:batchUpdate`, {
     method: "POST",
     body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: sh.properties.sheetId, dimension: "ROWS", startIndex: row - 1, endIndex: row } } }] }),

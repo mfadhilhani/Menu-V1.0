@@ -1,7 +1,7 @@
 "use client";
 import { ReactNode } from "react";
 import { closestCenter, DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { arrayMove, rectSortingStrategy, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
 function Item({ id, children }: { id: string; children: (handle: ReactNode) => ReactNode }) {
@@ -13,7 +13,7 @@ function Item({ id, children }: { id: string; children: (handle: ReactNode) => R
   return <div ref={setNodeRef} style={style}>{children(handle)}</div>;
 }
 
-export function SortableList<T extends { id: string }>({ items, onChange, children }: { items: T[]; onChange: (n: T[]) => void; children: (it: T, i: number, handle: ReactNode) => ReactNode }) {
+export function SortableList<T extends { id: string }>({ items, onChange, children, className }: { items: T[]; onChange: (n: T[]) => void; children: (it: T, i: number, handle: ReactNode) => ReactNode; className?: string }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const end = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
@@ -22,10 +22,13 @@ export function SortableList<T extends { id: string }>({ items, onChange, childr
   };
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={end}>
-      <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-        {items.map((it, i) => (
-          <Item key={it.id} id={it.id}>{(h) => children(it, i, h)}</Item>
-        ))}
+      <SortableContext items={items.map((i) => i.id)} strategy={className ? rectSortingStrategy : verticalListSortingStrategy}>
+        {(() => {
+          const body = items.map((it, i) => (
+            <Item key={it.id} id={it.id}>{(h) => children(it, i, h)}</Item>
+          ));
+          return className ? <div className={className}>{body}</div> : body;
+        })()}
       </SortableContext>
     </DndContext>
   );

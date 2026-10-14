@@ -5,7 +5,7 @@ import { norm } from "@/lib/text";
 export type Food = { key: string; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string };
 type Resolved = { food: Food | null; error?: string };
 type Ctx = {
-  foods: Food[]; authed: boolean | null; mock: boolean;
+  foods: Food[]; authed: boolean | null; mock: boolean; loadError: string;
   reload: () => Promise<void>;
   setFoods: (f: Food[]) => void;
   resolve: (name: string) => Promise<Resolved>;
@@ -23,17 +23,23 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
   const [foods, setFoodsState] = useState<Food[]>([]);
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [mock, setMock] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [dlg, setDlg] = useState<Dlg | null>(null);
   const ref = useRef<Food[]>([]);
   const setFoods = useCallback((f: Food[]) => { ref.current = f; setFoodsState(f); }, []);
 
   const reload = useCallback(async () => {
-    const r = await fetch("/api/foods", { cache: "no-store" });
-    if (r.status === 401) { setAuthed(false); return; }
-    const j = await r.json().catch(() => ({}));
-    if (r.ok) { setFoods(j.foods || []); setMock(!!j.mock); setAuthed(true); }
+    try {
+      const r = await fetch("/api/foods", { cache: "no-store" });
+      if (r.status === 401) { setLoadError(""); setAuthed(false); return; }
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { setLoadError(""); setFoods(j.foods || []); setMock(!!j.mock); setAuthed(true); }
+      else setLoadError((j.error as string) || `Server menjawab error ${r.status}`);
+    } catch {
+      setLoadError("Tidak bisa terhubung ke server");
+    }
   }, [setFoods]);
-  useEffect(() => { reload().catch(() => setAuthed(false)); }, [reload]);
+  useEffect(() => { reload(); }, [reload]);
 
   const login = useCallback(async (pin: string) => {
     const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
@@ -83,7 +89,7 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
   }, [setFoods]);
 
   return (
-    <C.Provider value={{ foods, authed, mock, reload, setFoods, resolve, patchFood, removeFood, login }}>
+    <C.Provider value={{ foods, authed, mock, loadError, reload, setFoods, resolve, patchFood, removeFood, login }}>
       {children}
       {dlg && (
         <div className="dlg-bg" role="dialog" aria-modal="true">

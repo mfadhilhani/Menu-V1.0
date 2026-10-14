@@ -4,6 +4,11 @@ import { fmt, icon, norm, num } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
+import CardsSection from "./CardsSection";
+import FotoSection from "./FotoSection";
+import PosterSection from "./PosterSection";
+import { Meal } from "@/lib/canvas";
+import { Slot } from "@/lib/report";
 import { uid } from "./TestFoodTab";
 
 type SetRows = (fn: (l: KR[]) => KR[]) => void;
@@ -32,8 +37,8 @@ function Row({ r, handle, upd, del }: { r: KR; handle: React.ReactNode; upd: (id
   );
 }
 
-type Props = { s: State; up: (p: Partial<State>) => void; setRows: SetRows; copy: (t: string) => void; wa: (t: string) => void };
-export default function KaloriTab({ s, up, setRows, copy, wa }: Props) {
+type Props = { s: State; up: (p: Partial<State>) => void; setRows: SetRows; setSlots: (m: Meal) => (fn: (l: Slot[]) => Slot[]) => void; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void };
+export default function KaloriTab({ s, up, setRows, setSlots, copy, wa, toast }: Props) {
   const upd = (id: string, p: Partial<KR>) => setRows((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
   const info = kaloriInfo(s), report = kaloriReport(s), warna = warnaMessage(s);
   return (
@@ -57,6 +62,9 @@ export default function KaloriTab({ s, up, setRows, copy, wa }: Props) {
         </div>
         <div className="note">Di bawah nama: kiri = kkal per 100 g, kanan = porsi (gram). Kalori terisi dari Sheet; kalau kamu mengubah angkanya, Sheet ikut diperbarui. Baris tanpa kalori tidak ikut dijumlahkan. Geser ⠿ untuk memindah urutan.</div>
       </section>
+      {(s.meal === "Breakfast" || s.meal === "Dinner") && <PosterSection s={s} setSlots={setSlots} toast={toast} />}
+      <CardsSection rows={s.rows} toast={toast} />
+      <FotoSection text={report} toast={toast} />
       <section>
         <h2>Hasil laporan kalori</h2>
         <textarea id="out" readOnly value={report} />

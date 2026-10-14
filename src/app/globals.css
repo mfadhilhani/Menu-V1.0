@@ -323,3 +323,13 @@
       .dlg h3{margin:0 0 6px;color:var(--nv);font-size:16px}
       .dlg p{margin:0 0 10px;color:var(--mut);font-size:14px}
       .dlg button{width:100%;margin-top:8px}
+
+      .cvs{width:100%;max-width:100%;height:auto;display:block;border:1px solid var(--bd);border-radius:8px;margin:10px auto 0}
+      .cvs.narrow{max-width:420px}
+      .cvs[hidden]{display:none}
+      .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+      .pf{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+      .pth{width:44px;height:44px;border-radius:6px;object-fit:cover;border:1px solid var(--bd)}
+      .fbtn{display:inline-block;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;font-size:13px;background:var(--card)}
+      .pf .x{width:36px;height:36px}
+      .acts button:disabled{opacity:.5;cursor:not-allowed}

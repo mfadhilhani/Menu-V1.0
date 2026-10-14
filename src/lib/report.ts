@@ -3,11 +3,13 @@ import { dateParts, fmt, icon, num, pad } from "./text";
 
 export type TF = { id: string; n: string; k: string };
 export type KR = { id: string; n: string; kkal: string; gram: string };
+export type Slot = { id: string; n: string; kkal: string; desc: string };
 export type State = {
   tab: "tf" | "kal" | "his";
   jn: string; dt: string; meal: string; site: string; sxi: string; ks: string;
   menu: TF[]; snack: TF[]; buah: TF[];
   ksite: string; camp: string; rule: boolean; rows: KR[];
+  pb: Slot[]; pd: Slot[];
 };
 export const LIMIT = 1800;
 const EXC = /sambal|sambel|kerupuk|krupuk/i;

@@ -27,7 +27,7 @@ export function pinOk(pin: string) {
 // Dipakai di setiap route yang menyentuh Sheet atau AI.
 export function guard(req: NextRequest): NextResponse | null {
   if (isMock() && !process.env.APP_PIN) return null; // mode coba lokal
-  if (!process.env.APP_PIN) return NextResponse.json({ error: "APP_PIN belum diisi di server" }, { status: 500 });
+  if (!process.env.APP_PIN) return NextResponse.json({ error: "APP_PIN belum diisi di server. Isi APP_PIN (dan AUTH_SECRET) di .env.local atau di Environment Variables Vercel, lalu restart/redeploy." }, { status: 500 });
   return tokenOk(req.cookies.get(COOKIE)?.value) ? null : NextResponse.json({ error: "login" }, { status: 401 });
 }
 

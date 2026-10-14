@@ -1,4 +1,5 @@
 // Normalisasi, kemiripan nama, ikon, format angka.
+export const uid = () => Math.random().toString(36).slice(2, 10);
 export const clean = (s: string) => s.normalize("NFKC").replace(/\s+/g, " ").trim();
 export const norm = (s: string) =>
   s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}& ]+/gu, " ").replace(/\s+/g, " ").trim();

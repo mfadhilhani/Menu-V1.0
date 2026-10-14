@@ -1,10 +1,12 @@
 "use client";
 import { testFoodReport, State, TF } from "@/lib/report";
+import { uid } from "@/lib/text";
 import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
+import TfCollage from "./TfCollage";
 
 type SetList = (fn: (l: TF[]) => TF[]) => void;
-export const uid = () => Math.random().toString(36).slice(2, 10);
+export { uid } from "@/lib/text";
 
 function Rows({ list, set, aria }: { list: TF[]; set: SetList; aria: string }) {
   const upd = (id: string, p: Partial<TF>) => set((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
@@ -23,8 +25,8 @@ function Rows({ list, set, aria }: { list: TF[]; set: SetList; aria: string }) {
   );
 }
 
-type Props = { s: State; up: (p: Partial<State>) => void; setList: (k: "menu" | "snack" | "buah") => SetList; copy: (t: string) => void; wa: (t: string) => void };
-export default function TestFoodTab({ s, up, setList, copy, wa }: Props) {
+type Props = { s: State; up: (p: Partial<State>) => void; setList: (k: "menu" | "snack" | "buah") => SetList; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void };
+export default function TestFoodTab({ s, up, setList, copy, wa, toast }: Props) {
   const add = (k: "menu" | "snack" | "buah") => setList(k)((l) => [...l, { id: uid(), n: "", k: "Ok" }]);
   const text = testFoodReport(s);
   const dinner = s.meal === "Dinner";
@@ -62,6 +64,7 @@ export default function TestFoodTab({ s, up, setList, copy, wa }: Props) {
           <button type="button" className="p" onClick={() => wa(text)}>Kirim teks ke WhatsApp</button>
         </div>
       </section>
+      <TfCollage text={text} date={s.dt} toast={toast} />
     </>
   );
 }

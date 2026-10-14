@@ -39,5 +39,16 @@ Catatan: paket Hobby dibatasi untuk pemakaian pribadi nonkomersial; cek ketentua
 - Batas panggilan AI per hari (`AI_DAILY_LIMIT`) dihitung di memori tiap instance server, jadi hanya pembatas kasar. Pasang juga batas biaya/kuota di Google AI Studio.
 - Kuota Google Sheets: 300 baca/menit per project dan 60/menit per pengguna; akun layanan dihitung satu pengguna. Karena itu isi Sheet di-cache 60 detik di server.
 
-## Belum dipindahkan dari versi HTML
-Poster Breakfast/Dinner, kartu dan kolase kode warna, serta kolase foto Test Food. Laporan teks, riwayat, daftar menu, geser urutan, dan simpan otomatis sudah ada.
+## Poster dan kolase
+Semua fitur poster dan kolase dari versi HTML sudah ada:
+- **Poster menu** (tab Menu & Kalori, untuk Breakfast dan Dinner): form 4 menu (Breakfast, template Kantin BCP) atau 6 menu (Dinner, dengan deskripsi). Nama, kalori, dan deskripsi terisi dari Sheet. Foto disimpan di browser (IndexedDB), jadi tidak hilang saat reload. Geser ⠿ untuk memindah urutan; foto ikut pindah.
+- **Poster kode warna (kolase)**: satu kartu landscape per menu (foto, kalori, nama, kartu kode warna), dua ke samping lalu ke bawah.
+- **Kode warna makanan**: kartu per baris Daftar makanan, unduh satu per satu atau semua jadi satu gambar.
+- **Foto untuk laporan kalori** dan **Kolase foto Test Food**: unggah foto, kolase otomatis, unduh atau kirim ke WhatsApp bersama teks.
+- **Mulai baru** menghapus isian dan foto di browser ini (data di Sheet tidak tersentuh).
+
+Catatan:
+- Gambar template ada di `public/assets/` (poster Breakfast dan Dinner, kartu landscape, logo, wajah kartu). Ganti file dengan nama yang sama untuk mengubah desain.
+- Font poster (Gaegu, Playfair Display SC, Hanken Grotesk) dimuat dari Google Fonts; kalau gagal dimuat dipakai font cadangan.
+- Kirim gambar + teks lewat menu bagikan HP butuh HTTPS dan browser yang mendukung. Kalau tidak didukung, gambar disimpan dan teks disalin.
+- Lunch dan Supper tidak punya poster, hanya laporan teks.
