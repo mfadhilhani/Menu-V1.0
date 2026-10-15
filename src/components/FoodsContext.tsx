@@ -3,12 +3,13 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, Re
 import { norm } from "@/lib/text";
 
 export type Food = { key: string; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string };
-type Resolved = { food: Food | null; error?: string };
+type Resolved = { food: Food | null; error?: string; hint?: string; retry?: boolean };
 type Ctx = {
   foods: Food[]; authed: boolean | null; mock: boolean; loadError: string;
   reload: () => Promise<void>;
   setFoods: (f: Food[]) => void;
   resolve: (name: string) => Promise<Resolved>;
+  addManual: (name: string, kkal: number) => Promise<boolean>;
   patchFood: (key: string, body: { kkal?: number | null; deskripsi?: string; status?: string }) => Promise<boolean>;
   removeFood: (key: string) => Promise<boolean>;
   login: (pin: string) => Promise<string | null>;
@@ -72,7 +73,7 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
       setFoods(sortFoods([...ref.current.filter((x) => x.key !== f.key), f]));
       return { food: f };
     }
-    return { food: null, error: (r.message as string) || "Gagal mencari data" };
+    return { food: null, error: (r.message as string) || "Gagal mencari data", hint: r.hint as string | undefined, retry: !!r.retry };
   }, [setFoods]);
 
   const patchFood = useCallback(async (key: string, body: { kkal?: number | null; deskripsi?: string; status?: string }) => {
@@ -82,6 +83,12 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
     setFoods(ref.current.map((x) => (x.key === key ? (j.food as Food) : x)));
     return true;
   }, [setFoods]);
+  // Tambah makanan tanpa AI (dipakai saat AI sibuk dan kalori diisi manual).
+  const addManual = useCallback(async (name: string, kkal: number) => {
+    const r = await fetch("/api/foods/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: [{ n: name, k: kkal }] }) });
+    if (r.ok) await reload();
+    return r.ok;
+  }, [reload]);
   const removeFood = useCallback(async (key: string) => {
     const r = await fetch(`/api/foods?key=${encodeURIComponent(key)}`, { method: "DELETE" });
     if (r.ok) setFoods(ref.current.filter((x) => x.key !== key));
@@ -89,7 +96,7 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
   }, [setFoods]);
 
   return (
-    <C.Provider value={{ foods, authed, mock, loadError, reload, setFoods, resolve, patchFood, removeFood, login }}>
+    <C.Provider value={{ foods, authed, mock, loadError, reload, setFoods, resolve, addManual, patchFood, removeFood, login }}>
       {children}
       {dlg && (
         <div className="dlg-bg" role="dialog" aria-modal="true">

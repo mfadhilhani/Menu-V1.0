@@ -8,7 +8,8 @@ Saat kamu selesai mengetik nama makanan (pindah kolom atau Enter):
 2. **Mirip** (typo) → muncul pop up "Apakah maksud kamu ini?". **Ya** = pakai data yang ada. **Bukan** = diperlakukan sebagai makanan baru.
 3. **Baru** → Gemini mencari nama baku, deskripsi (maks. 14 kata), dan satu angka kkal per 100 g, lalu baris baru ditambahkan ke Sheet dengan `sumber = AI` dan `status = belum dicek`.
 
-Kalau AI gagal, tidak ada baris yang ditulis; kolom tetap bisa dipakai dan dicoba lagi saat kamu mengetik ulang.
+Kalau AI gagal (misalnya sedang sibuk), tidak ada baris yang ditulis. Muncul pesan singkat dengan tombol "Coba lagi", dan aplikasi mencoba sekali lagi otomatis setelah beberapa detik. Kamu juga bisa mengisi kalori manual: makanan itu langsung ditambahkan ke Sheet tanpa AI.
+Supaya deteksi typo bekerja sejak awal, isi Sheet dengan makanan yang sering dipakai (Riwayat → Impor cadangan lama, atau ketik langsung di Sheet). Sheet kosong berarti semua nama dianggap baru dan lewat AI.
 Mengubah kalori di baris Daftar makanan (atau di tab Riwayat) memperbarui Sheet dan menandainya "sudah dicek".
 
 ## Struktur Sheet
@@ -28,7 +29,7 @@ Untuk mencoba tanpa kredensial: isi `MOCK_BACKEND=1` di `.env.local` (data semen
 2. Buat Google Sheet, lalu bagikan ke email service account (`client_email`) sebagai **Editor**.
 3. `SHEET_ID` = bagian URL Sheet di antara `/d/` dan `/edit`.
 4. `GOOGLE_PRIVATE_KEY` = isi `private_key` dari JSON, baris baru ditulis sebagai `\n`.
-5. `GEMINI_API_KEY` dari Google AI Studio. Nama model di `GEMINI_MODEL`; ganti kalau modelnya tidak tersedia untuk key kamu.
+5. `GEMINI_API_KEY` dari Google AI Studio. Model utama di `GEMINI_MODEL` (bawaan `gemini-3.5-flash`) dan cadangan di `GEMINI_FALLBACK_MODELS`. Kalau satu model sibuk (503) atau kena batas (429), aplikasi mencoba ulang lalu pindah ke model berikutnya. Cek daftar model terbaru di dokumentasi Gemini; model 2.5 dijadwalkan dimatikan 16 Oktober 2026.
 
 ## Deploy ke Vercel
 Push ke GitHub, import di Vercel, isi semua variabel dari `.env.example` di Environment Variables, lalu Deploy. Jangan commit `.env.local`.

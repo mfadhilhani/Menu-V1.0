@@ -311,7 +311,8 @@
       .ni .sug button{display:flex;justify-content:space-between;gap:8px;width:100%;border:0;border-bottom:1px solid var(--bd);border-radius:0;text-align:left;background:none;padding:9px 10px}
       .ni .sug button:last-child{border-bottom:0}
       .ni .sug button span{color:var(--mut);font-size:12px;white-space:nowrap}
-      .ni .busy{position:absolute;right:8px;top:12px;font-size:11px;color:var(--mut);pointer-events:none}
+      .ni .busy{display:block;font-size:11px;color:var(--mut);margin-top:2px}
+      .ni .lnk{border:0;background:none;color:var(--nv);text-decoration:underline;padding:0 0 0 6px;font-size:12px;cursor:pointer;font-weight:600}
       .ni .err,p.err{display:block;font-size:12px;color:var(--dg);margin:3px 0 0}
       div.ic{display:flex;align-items:center;justify-content:center;height:40px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);font-size:18px}
       .chk{display:flex;gap:6px;align-items:center;margin-top:8px;color:var(--tx)}

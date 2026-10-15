@@ -14,11 +14,12 @@ import { uid } from "./TestFoodTab";
 type SetRows = (fn: (l: KR[]) => KR[]) => void;
 
 function Row({ r, handle, upd, del }: { r: KR; handle: React.ReactNode; upd: (id: string, p: Partial<KR>) => void; del: () => void }) {
-  const { foods, patchFood } = useFoods();
+  const { foods, patchFood, addManual } = useFoods();
   // Koreksi kalori langsung di baris ikut memperbarui Sheet (dianggap sudah dicek).
   const saveKkal = () => {
     const f = foods.find((x) => x.key === norm(r.n)), v = num(r.kkal);
     if (f && v != null && v !== f.kkal) patchFood(f.key, { kkal: v, status: "sudah dicek" });
+    else if (!f && v != null && r.n.trim().length >= 2) addManual(r.n.trim(), v);
   };
   return (
     <div className="r">

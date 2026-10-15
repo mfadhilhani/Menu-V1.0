@@ -15,7 +15,7 @@ type Props = { s: State; setSlots: (m: Meal) => SetSlots; toast: (m: string) => 
 export default function PosterSection({ s, setSlots, toast }: Props) {
   const meal = s.meal as Meal, dinner = meal === "Dinner";
   const slots = dinner ? s.pd : s.pb, set = setSlots(meal);
-  const { foods, patchFood } = useFoods();
+  const { foods, patchFood, addManual } = useFoods();
   const photos = useSlotPhotos([...s.pb, ...s.pd].map((x) => x.id));
   const poster = useRef<HTMLCanvasElement>(null), kolase = useRef<HTMLCanvasElement>(null);
   const [hasKolase, setHasKolase] = useState(false);
@@ -47,6 +47,7 @@ export default function PosterSection({ s, setSlots, toast }: Props) {
   const saveKkal = (x: Slot) => {
     const f = foods.find((y) => y.key === norm(x.n)), v = num(x.kkal);
     if (f && v != null && v !== f.kkal) patchFood(f.key, { kkal: v, status: "sudah dicek" });
+    else if (!f && v != null && x.n.trim().length >= 2) addManual(x.n.trim(), v);
   };
 
   return (
