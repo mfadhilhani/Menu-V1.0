@@ -334,3 +334,11 @@
       .fbtn{display:inline-block;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;font-size:13px;background:var(--card)}
       .pf .x{width:36px;height:36px}
       .acts button:disabled{opacity:.5;cursor:not-allowed}
+
+      .combo input{padding-right:40px}
+      .combo .cb{position:absolute;right:4px;top:4px;width:34px;height:34px;padding:0;border:0;background:none;font-size:16px;cursor:pointer;color:var(--nv)}
+
+      button.ic{display:flex;align-items:center;justify-content:center;height:40px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);font-size:18px;padding:0;cursor:pointer;width:100%}
+      .egrid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;max-height:230px;overflow:auto}
+      .egrid button{width:100%;margin-top:0;aspect-ratio:1;padding:0;font-size:20px;line-height:1}
+      .egrid button.on{outline:2px solid var(--ac)}

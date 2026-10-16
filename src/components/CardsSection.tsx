@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { blobOf, colorCard, gridSheet } from "@/lib/canvas";
 import { KR } from "@/lib/report";
 import { saveBlob } from "@/lib/share";
-import { num } from "@/lib/text";
+import { num, toTitle } from "@/lib/text";
 
 function CardCanvas({ name, kk }: { name: string; kk: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -22,7 +22,7 @@ function CardCanvas({ name, kk }: { name: string; kk: number }) {
 const slug = (n: string) => n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "makanan";
 
 export default function CardsSection({ rows, toast }: { rows: KR[]; toast: (m: string) => void }) {
-  const list = rows.map((r) => ({ id: r.id, name: r.n.trim(), kk: num(r.kkal) })).filter((r): r is { id: string; name: string; kk: number } => !!r.name && r.kk != null);
+  const list = rows.map((r) => ({ id: r.id, name: toTitle(r.n), kk: num(r.kkal) })).filter((r): r is { id: string; name: string; kk: number } => !!r.name && r.kk != null);
   const [busy, setBusy] = useState(false);
   const one = async (name: string, kk: number) => {
     saveBlob(await blobOf(await colorCard(name, kk)), `${slug(name)}-${String(kk).replace(".", "_")}kkal.png`);

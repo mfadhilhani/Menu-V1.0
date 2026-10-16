@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KR, Slot, State, TF } from "@/lib/report";
 import { idbClear } from "@/lib/idb";
-import { todayStr, uid } from "@/lib/text";
+import { JENIS } from "@/lib/options";
+import ComboInput from "./ComboInput";
+import { mealByHour, todayStr, uid } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import KaloriTab from "./KaloriTab";
 import Login from "./Login";
@@ -14,7 +16,7 @@ const mkTF = (n: number): TF[] => Array.from({ length: n }, () => ({ id: uid(), 
 const mkKR = (n: number): KR[] => Array.from({ length: n }, () => ({ id: uid(), n: "", kkal: "", gram: "100" }));
 const mkSlot = (n: number): Slot[] => Array.from({ length: n }, () => ({ id: uid(), n: "", kkal: "", desc: "" }));
 const init = (): State => ({
-  tab: "tf", jn: "Reguler", dt: "", meal: "Breakfast", site: "BCP", sxi: "",
+  tab: "tf", mealAuto: true, jn: "Reguler", live: false, liveMenu: "", dt: "", meal: "Breakfast", site: "BCP", sxi: "",
   ks: "Makanan dalam kondisi layak untuk dikonsumsi",
   menu: mkTF(6), snack: mkTF(2), buah: mkTF(1),
   ksite: "DH BCP", camp: "Camp Pelangi", rule: true, rows: mkKR(6),
@@ -34,7 +36,7 @@ export default function App() {
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || "null");
       if (d && d.v === 1 && d.state) {
-        setS((p) => ({ ...p, ...d.state, dt: d.day === todayStr() && d.state.dt ? d.state.dt : todayStr() }));
+        setS((p) => ({ ...p, ...d.state, dt: d.day === todayStr() && d.state.dt ? d.state.dt : todayStr(), ...(d.day !== todayStr() ? { mealAuto: true } : {}) }));
         setLoaded(true);
         return;
       }
@@ -53,6 +55,21 @@ export default function App() {
   const setSlots = useCallback((m: "Breakfast" | "Dinner") => (fn: (l: Slot[]) => Slot[]) => setS((x) => (m === "Breakfast" ? { ...x, pb: fn(x.pb) } : { ...x, pd: fn(x.pd) })), []);
   const setRows = useCallback((fn: (l: KR[]) => KR[]) => setS((x) => ({ ...x, rows: fn(x.rows) })), []);
   const toast = useCallback((m: string) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(""), 2800); }, []);
+  // Waktu makan mengikuti jam selama "otomatis" aktif; memilih manual mematikannya.
+  useEffect(() => {
+    if (!loaded || !s.mealAuto) return;
+    const tick = () => {
+      const m = mealByHour(new Date().getHours());
+      setS((p) => {
+        if (p.meal === m) return p;
+        toast("Waktu makan otomatis: " + m);
+        return { ...p, meal: m };
+      });
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, [loaded, s.mealAuto, toast]);
   const copy = useCallback(async (t: string) => { try { await navigator.clipboard.writeText(t); toast("Teks disalin"); } catch { toast("Gagal menyalin, salin manual"); } }, [toast]);
   const wa = useCallback((t: string) => { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); }, []);
 
@@ -96,12 +113,19 @@ export default function App() {
             {mock && <p className="hint">Mode coba aktif: data makanan hanya sementara dan AI berupa contoh.</p>}
             <section>
               <h2>Info umum</h2>
-              <div className="g1"><label htmlFor="jn">Jenis menu</label><input id="jn" value={s.jn} placeholder="Reguler" onChange={(e) => up({ jn: e.target.value })} /></div>
+              <div className="g1">
+                <label htmlFor="jn">Jenis menu</label>
+                <ComboInput id="jn" value={s.jn} placeholder="Pilih atau ketik sendiri" options={JENIS} onChange={(v) => up({ jn: v })} />
+              </div>
+              <div className="g1">
+                <label className="chk"><input type="checkbox" checked={s.live} onChange={(e) => up({ live: e.target.checked })} /> Live Cooking</label>
+                {s.live && <input id="live" value={s.liveMenu} placeholder="Menu yang live (mis. Menu Lalapan)" aria-label="Menu live cooking" onChange={(e) => up({ liveMenu: e.target.value })} style={{ marginTop: 6 }} />}
+              </div>
               <div className="g1"><label htmlFor="dt">Tanggal (otomatis hari ini)</label><input id="dt" type="date" value={s.dt} onChange={(e) => up({ dt: e.target.value })} /></div>
               <div className="g2">
                 <div>
                   <label htmlFor="meal">Waktu makan</label>
-                  <select id="meal" value={s.meal} onChange={(e) => up({ meal: e.target.value })}>
+                  <select id="meal" value={s.meal} onChange={(e) => up({ meal: e.target.value, mealAuto: false })}>
                     {["Breakfast", "Lunch", "Dinner", "Supper"].map((m) => <option key={m}>{m}</option>)}
                   </select>
                 </div>
@@ -113,6 +137,8 @@ export default function App() {
                   </select>
                 </div>
               </div>
+              <label className="chk"><input type="checkbox" checked={s.mealAuto} onChange={(e) => up(e.target.checked ? { mealAuto: true, meal: mealByHour(new Date().getHours()) } : { mealAuto: false })} /> Waktu makan otomatis sesuai jam</label>
+              <div className="note" style={{ marginTop: 2 }}>Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis.</div>
               {s.site === "__x" && <div><label htmlFor="sxi">Nama site</label><input id="sxi" value={s.sxi} placeholder="Ketik nama site" onChange={(e) => up({ sxi: e.target.value })} /></div>}
             </section>
             {s.tab === "tf" && <TestFoodTab s={s} up={up} setList={setList} copy={copy} wa={wa} toast={toast} />}

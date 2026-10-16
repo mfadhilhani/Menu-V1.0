@@ -1,12 +1,12 @@
 // Penyusun teks laporan (port dari versi HTML).
-import { dateParts, fmt, icon, num, pad } from "./text";
+import { dateParts, fmt, icon, num, pad, toTitle } from "./text";
 
 export type TF = { id: string; n: string; k: string };
-export type KR = { id: string; n: string; kkal: string; gram: string };
+export type KR = { id: string; n: string; kkal: string; gram: string; ic?: string };
 export type Slot = { id: string; n: string; kkal: string; desc: string };
 export type State = {
   tab: "tf" | "kal" | "his";
-  jn: string; dt: string; meal: string; site: string; sxi: string; ks: string;
+  mealAuto: boolean; jn: string; live: boolean; liveMenu: string; dt: string; meal: string; site: string; sxi: string; ks: string;
   menu: TF[]; snack: TF[]; buah: TF[];
   ksite: string; camp: string; rule: boolean; rows: KR[];
   pb: Slot[]; pd: Slot[];
@@ -15,14 +15,17 @@ export const LIMIT = 1800;
 const EXC = /sambal|sambel|kerupuk|krupuk/i;
 
 export const siteName = (s: State) => (s.site === "__x" ? s.sxi.trim() || "-" : s.site);
+// Baris Live Cooking (kosong kalau tidak dicentang atau belum diisi).
+const liveText = (s: State) => (s.live && s.liveMenu.trim() ? toTitle(s.liveMenu) : "");
 const dateText = (s: State) => { const p = dateParts(s.dt); return `${p.hari}, ${pad(p.d)} ${p.m} ${p.y}`; };
 
 function lines(arr: TF[], always: boolean) {
   const a = arr.filter((i) => i.n.trim());
-  return a.map((i, x) => (always || a.length > 1 ? `${x + 1}. ` : "") + i.n.trim() + ": " + i.k.trim()).join("\n");
+  return a.map((i, x) => (always || a.length > 1 ? `${x + 1}. ` : "") + toTitle(i.n) + ": " + i.k.trim()).join("\n");
 }
 export function testFoodReport(s: State) {
-  let t = `*Test Food Menu ${s.jn.trim()}*\n*${dateText(s)}*\n\n*Menu ${s.meal} Site ${siteName(s)}*\n${lines(s.menu, true)}`;
+  const live = liveText(s);
+  let t = `*Test Food Menu ${s.jn.trim()}*\n${live ? `*Live Cooking : ${live}*\n` : ""}*${dateText(s)}*\n\n*Menu ${s.meal} Site ${siteName(s)}*\n${lines(s.menu, true)}`;
   if (s.meal === "Dinner") {
     ([["Snack", s.snack], ["Buah", s.buah]] as [string, TF[]][]).forEach(([h, arr]) => {
       const l = lines(arr, false);
@@ -42,12 +45,12 @@ export function kaloriInfo(s: State) {
 export function kaloriReport(s: State) {
   const { rows, tot } = kaloriInfo(s);
   const p = dateParts(s.dt);
-  const L = [`🍽️ Menu ${s.meal} ${s.ksite} 🍽️`, `✨ ${p.hari} ${pad(p.d)} ${p.m} ${p.y} ✨`, `🌈 ${s.camp} 🌈`, `💫 Menu ${s.jn} 💫`, "", "🍽️Kalori Persaji 100 gram🍽️", ""];
+  const L = [`🍽️ Menu ${s.meal} ${s.ksite} 🍽️`, `✨ ${p.hari} ${pad(p.d)} ${p.m} ${p.y} ✨`, `🌈 ${s.camp} 🌈`, `💫 Menu ${s.jn.trim()} 💫`, ...(liveText(s) ? [`👩‍🍳 Live Cooking : ${liveText(s)} 👩‍🍳`] : []), "", "🍽️Kalori Persaji 100 gram🍽️", ""];
   rows.forEach((r) => {
-    const e = icon(r.n) || "🍽️";
-    if (r.kv == null) { L.push(`${e} ${r.n.trim()}`, ""); return; }
+    const e = r.ic || icon(r.n) || "🍽️", nm = toTitle(r.n);
+    if (r.kv == null) { L.push(`${e} ${nm}`, ""); return; }
     const sub = (r.kv * r.gv) / 100;
-    L.push(r.gv === 100 ? `${e} ${r.n.trim()} (${fmt(r.kv)} kkal)` : `${e} ${r.n.trim()} (${fmt(r.kv)} kkal/100 g) – porsi ${fmt(r.gv)} g = ${fmt(sub)} kkal`, "");
+    L.push(r.gv === 100 ? `${e} ${nm} (${fmt(r.kv)} kkal)` : `${e} ${nm} (${fmt(r.kv)} kkal/100 g) – porsi ${fmt(r.gv)} g = ${fmt(sub)} kkal`, "");
   });
   L.push(`Total Kalori = ${fmt(tot)}kkal`, "", "🌹Selamat Menikmati 🌹");
   return L.join("\n");

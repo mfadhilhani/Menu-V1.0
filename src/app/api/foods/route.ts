@@ -17,9 +17,10 @@ export async function PATCH(req: NextRequest) {
   if (d) return d;
   try {
     const b = await req.json();
-    const patch: { deskripsi?: string; kkal?: number | null; status?: string; sumber?: string } = {};
+    const patch: { deskripsi?: string; kkal?: number | null; status?: string; sumber?: string; ikon?: string } = {};
     if (typeof b.deskripsi === "string") patch.deskripsi = clean(b.deskripsi).split(" ").slice(0, 14).join(" ");
     if ("kkal" in b) patch.kkal = num(b.kkal);
+    if (typeof b.ikon === "string") patch.ikon = b.ikon.trim().slice(0, 8);
     if (b.status === "sudah dicek" || b.status === "belum dicek") patch.status = b.status;
     if (patch.kkal !== undefined) patch.sumber = "manual";
     const f = await updateFood(String(b.key || ""), patch);

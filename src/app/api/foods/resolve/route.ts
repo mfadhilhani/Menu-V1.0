@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { aiAllowed, guard } from "@/lib/auth";
 import { AIError, askGemini } from "@/lib/gemini";
 import { addFood, listFoods } from "@/lib/store";
-import { clean, norm, similar } from "@/lib/text";
+import { clean, norm, similar, toTitle } from "@/lib/text";
 
 export const maxDuration = 30;
 
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
     if (!aiAllowed()) return NextResponse.json({ status: "error", message: "Batas AI hari ini habis", hint: "Batas panggilan AI per hari (AI_DAILY_LIMIT) tercapai. Isi kalori manual atau coba besok." });
     const ai = await askGemini(nm);
-    const { food, created } = await addFood({ nama: ai.nama, deskripsi: ai.deskripsi, kkal: ai.kkal, sumber: "AI", status: "belum dicek" });
+    const { food, created } = await addFood({ nama: toTitle(ai.nama), deskripsi: ai.deskripsi, kkal: ai.kkal, sumber: "AI", status: "belum dicek", ikon: "" });
     return NextResponse.json({ status: created ? "created" : "found", food });
   } catch (e) {
     console.error("[resolve]", e);

@@ -4,7 +4,7 @@ import { blobOf, drawKolase, drawPoster, Meal, SlotView } from "@/lib/canvas";
 import { useSlotPhotos } from "@/lib/photos";
 import { kaloriReport, Slot, State, warnaMessage } from "@/lib/report";
 import { saveBlob, shareFiles } from "@/lib/share";
-import { norm, num } from "@/lib/text";
+import { norm, num, toTitle } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
@@ -23,7 +23,7 @@ export default function PosterSection({ s, setSlots, toast }: Props) {
 
   // Gambar ulang poster dan kolase setiap isian atau foto berubah (jeda singkat supaya tidak berat).
   useEffect(() => {
-    const views: SlotView[] = slots.map((x) => ({ name: x.n, desc: x.desc, kkal: num(x.kkal), img: photos.map[x.id]?.bmp ?? null }));
+    const views: SlotView[] = slots.map((x) => ({ name: toTitle(x.n), desc: x.desc, kkal: num(x.kkal), img: photos.map[x.id]?.bmp ?? null }));
     const t = setTimeout(async () => {
       if (poster.current) await drawPoster(poster.current, meal, views);
       if (kolase.current) setHasKolase(await drawKolase(kolase.current, views));

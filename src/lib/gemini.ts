@@ -24,9 +24,10 @@ function mock(name: string): AIFood {
   return { nama, deskripsi: `Contoh deskripsi singkat untuk ${nama} (mode coba).`, kkal: 60 + (h % 300) };
 }
 
-// Model utama lalu cadangan. Model 2.5 dijadwalkan dimatikan 16 Oktober 2026, jadi tidak dipakai.
+// Model utama lalu cadangan (semua punya tier gratis menurut halaman harga Gemini per 15 Okt 2026).
+// Model 2.5 dijadwalkan dimatikan 16 Oktober 2026, jadi tidak dipakai.
 export const modelChain = () =>
-  [process.env.GEMINI_MODEL || "gemini-3.5-flash", ...(process.env.GEMINI_FALLBACK_MODELS ?? "gemini-3.1-flash-lite,gemini-3.8-flash").split(",")]
+  [process.env.GEMINI_MODEL || "gemini-3.1-flash-lite", ...(process.env.GEMINI_FALLBACK_MODELS ?? "gemini-3.5-flash-lite,gemini-3.6-flash,gemini-3.8-flash").split(",")]
     .map((s) => s.trim()).filter((m, i, a) => m && a.indexOf(m) === i);
 
 async function once(model: string, name: string, key: string, ms: number): Promise<AIFood> {

@@ -1,8 +1,8 @@
-// Google Sheets lewat REST (akun layanan). Kolom: key | nama | deskripsi | kkal_100g | sumber | status | diubah
+// Google Sheets lewat REST (akun layanan). Kolom: key | nama | deskripsi | kkal_100g | sumber | status | diubah | ikon
 import { JWT } from "google-auth-library";
 
-export type Row = { row: number; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string };
-export const HEADER = ["key", "nama", "deskripsi", "kkal_100g", "sumber", "status", "diubah"];
+export type Row = { row: number; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string; ikon: string };
+export const HEADER = ["key", "nama", "deskripsi", "kkal_100g", "sumber", "status", "diubah", "ikon"];
 
 const ID = () => process.env.SHEET_ID || "";
 const TAB = () => process.env.SHEET_TAB || "makanan";
@@ -43,35 +43,37 @@ async function ensureHeader() {
     await api(`:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: TAB() } } }] }) });
     tabName = TAB();
   }
-  const d = await api(`/values/${rng("A1:G1")}`);
-  if (!d.values || d.values[0]?.[0] !== "key") {
-    await api(`/values/${rng("A1:G1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [HEADER] }) });
+  const d = await api(`/values/${rng("A1:H1")}`);
+  const h: string[] = d.values?.[0] || [];
+  if (h[0] !== "key" || h[7] !== "ikon") {
+    // Sheet baru, atau Sheet lama tanpa kolom ikon: tulis ulang baris judul (data di bawahnya tidak disentuh).
+    await api(`/values/${rng("A1:H1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [HEADER] }) });
   }
   headerOk = true;
 }
 
 export async function readRows(): Promise<Row[]> {
   await ensureHeader();
-  const d = await api(`/values/${rng("A2:G")}`);
+  const d = await api(`/values/${rng("A2:H")}`);
   const vals: string[][] = d.values || [];
   const out: Row[] = [];
   vals.forEach((v, i) => {
     if (!v[1]) return;
     const k = parseFloat(String(v[3] ?? "").replace(",", "."));
-    out.push({ row: i + 2, nama: v[1], deskripsi: v[2] || "", kkal: Number.isFinite(k) ? k : null, sumber: v[4] || "", status: v[5] || "", diubah: v[6] || "" });
+    out.push({ row: i + 2, nama: v[1], deskripsi: v[2] || "", kkal: Number.isFinite(k) ? k : null, sumber: v[4] || "", status: v[5] || "", diubah: v[6] || "", ikon: v[7] || "" });
   });
   return out;
 }
-const line = (key: string, r: Omit<Row, "row">) => [key, r.nama, r.deskripsi, r.kkal ?? "", r.sumber, r.status, r.diubah];
+const line = (key: string, r: Omit<Row, "row">) => [key, r.nama, r.deskripsi, r.kkal ?? "", r.sumber, r.status, r.diubah, r.ikon];
 
 export async function appendRow(key: string, r: Omit<Row, "row">) {
-  await api(`/values/${rng("A:G")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+  await api(`/values/${rng("A:H")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     method: "POST",
     body: JSON.stringify({ values: [line(key, r)] }),
   });
 }
 export async function updateRow(row: number, key: string, r: Omit<Row, "row">) {
-  await api(`/values/${rng(`A${row}:G${row}`)}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [line(key, r)] }) });
+  await api(`/values/${rng(`A${row}:H${row}`)}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [line(key, r)] }) });
 }
 export async function deleteRow(row: number) {
   const meta = await api(`?fields=sheets.properties(sheetId,title)`);

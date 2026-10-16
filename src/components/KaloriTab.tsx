@@ -1,6 +1,8 @@
 "use client";
 import { kaloriInfo, kaloriReport, LIMIT, State, warnaMessage, KR } from "@/lib/report";
+import { useState } from "react";
 import { fmt, icon, norm, num } from "@/lib/text";
+import IconPicker from "./IconPicker";
 import { useFoods } from "./FoodsContext";
 import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
@@ -15,6 +17,8 @@ type SetRows = (fn: (l: KR[]) => KR[]) => void;
 
 function Row({ r, handle, upd, del }: { r: KR; handle: React.ReactNode; upd: (id: string, p: Partial<KR>) => void; del: () => void }) {
   const { foods, patchFood, addManual } = useFoods();
+  const [pick, setPick] = useState(false);
+  const auto = icon(r.n) || "🍽️", shown = r.ic || auto;
   // Koreksi kalori langsung di baris ikut memperbarui Sheet (dianggap sudah dicek).
   const saveKkal = () => {
     const f = foods.find((x) => x.key === norm(r.n)), v = num(r.kkal);
@@ -24,12 +28,28 @@ function Row({ r, handle, upd, del }: { r: KR; handle: React.ReactNode; upd: (id
   return (
     <div className="r">
       {handle}
-      <div className="ic" aria-hidden>{icon(r.n)}</div>
+      <button type="button" className="ic" aria-label="Ubah ikon makanan" title="Ketuk untuk mengubah ikon" onClick={() => setPick(true)}>{shown}</button>
+      {pick && (
+        <IconPicker
+          current={shown}
+          auto={auto}
+          onClose={() => setPick(false)}
+          onPick={(e) => {
+            setPick(false);
+            upd(r.id, { ic: e || undefined });
+            const f = foods.find((x) => x.key === norm(r.n));
+            if (f) patchFood(f.key, { ikon: e });
+          }}
+        />
+      )}
       <NameInput
         className="nm"
         value={r.n}
         onChange={(v) => upd(r.id, { n: v })}
-        onFood={(f) => upd(r.id, { n: f.nama, kkal: f.kkal != null ? String(f.kkal).replace(".", ",") : "" })}
+        onFood={(f) => {
+          upd(r.id, { n: f.nama, kkal: f.kkal != null ? String(f.kkal).replace(".", ",") : "", ic: f.ikon || r.ic });
+          if (!f.ikon && r.ic) patchFood(f.key, { ikon: r.ic }); // ikon yang dipilih sebelum nama dikenali ikut disimpan
+        }}
       />
       <button type="button" className="x" aria-label="Hapus baris" onClick={del}>✕</button>
       <input className="kk" inputMode="decimal" placeholder="kkal" title="kkal per 100 g" value={r.kkal} onChange={(e) => upd(r.id, { kkal: e.target.value })} onBlur={saveKkal} />

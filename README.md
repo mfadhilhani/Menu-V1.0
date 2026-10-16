@@ -14,7 +14,8 @@ Mengubah kalori di baris Daftar makanan (atau di tab Riwayat) memperbarui Sheet 
 
 ## Struktur Sheet
 Tab `makanan` (atau isi `SHEET_TAB`). Baris judul dibuat otomatis:
-`key | nama | deskripsi | kkal_100g | sumber | status | diubah`
+`key | nama | deskripsi | kkal_100g | sumber | status | diubah | ikon`
+Sheet lama yang belum punya kolom `ikon` diperbarui otomatis (baris judul ditambah, data tidak disentuh).
 
 ## Menjalankan
 ```bash
@@ -29,7 +30,7 @@ Untuk mencoba tanpa kredensial: isi `MOCK_BACKEND=1` di `.env.local` (data semen
 2. Buat Google Sheet, lalu bagikan ke email service account (`client_email`) sebagai **Editor**.
 3. `SHEET_ID` = bagian URL Sheet di antara `/d/` dan `/edit`.
 4. `GOOGLE_PRIVATE_KEY` = isi `private_key` dari JSON, baris baru ditulis sebagai `\n`.
-5. `GEMINI_API_KEY` dari Google AI Studio. Model utama di `GEMINI_MODEL` (bawaan `gemini-3.5-flash`) dan cadangan di `GEMINI_FALLBACK_MODELS`. Kalau satu model sibuk (503) atau kena batas (429), aplikasi mencoba ulang lalu pindah ke model berikutnya. Cek daftar model terbaru di dokumentasi Gemini; model 2.5 dijadwalkan dimatikan 16 Oktober 2026.
+5. `GEMINI_API_KEY` dari Google AI Studio. Model utama di `GEMINI_MODEL` (bawaan `gemini-3.1-flash-lite`, model ringan yang stabil dan punya tier gratis) dan cadangan di `GEMINI_FALLBACK_MODELS`. Kalau satu model sibuk (503) atau kena batas (429), aplikasi mencoba ulang lalu pindah ke model berikutnya. Cek daftar model terbaru di dokumentasi Gemini; model 2.5 dijadwalkan dimatikan 16 Oktober 2026.
 
 ## Deploy ke Vercel
 Push ke GitHub, import di Vercel, isi semua variabel dari `.env.example` di Environment Variables, lalu Deploy. Jangan commit `.env.local`.
@@ -39,6 +40,15 @@ Catatan: paket Hobby dibatasi untuk pemakaian pribadi nonkomersial; cek ketentua
 - Semua route `/api/*` (kecuali login) butuh login PIN (`APP_PIN`, cookie `httpOnly` bertanda tangan memakai `AUTH_SECRET`). Isi `AUTH_SECRET` dengan teks acak panjang.
 - Batas panggilan AI per hari (`AI_DAILY_LIMIT`) dihitung di memori tiap instance server, jadi hanya pembatas kasar. Pasang juga batas biaya/kuota di Google AI Studio.
 - Kuota Google Sheets: 300 baca/menit per project dan 60/menit per pengguna; akun layanan dihitung satu pengguna. Karena itu isi Sheet di-cache 60 detik di server.
+
+## Info umum
+- **Jenis menu**: pilih dari daftar (Reguler, Tematik, BBQ, Healthy Food) atau ketik sendiri; yang kamu ketik diingat di daftar.
+- **Live Cooking**: centang, lalu isi menu yang live. Baris `👩‍🍳 Live Cooking : …` muncul di laporan kalori, dan `*Live Cooking : …*` di laporan Test Food (di antara judul dan tanggal).
+- **Waktu makan otomatis** mengikuti jam: Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis; centang lagi untuk kembali ke jam.
+- Nama makanan otomatis ditulis **Capitalize Each Word** (singkatan 1-3 huruf besar seperti BBQ tetap).
+
+## Ikon makanan
+Ikon di daftar makanan dipilih otomatis dari nama (lebih dari 100 kata kunci; jenis hidangan didahulukan atas bahan, mis. "Mie Ayam" = 🍜). Ketuk ikon untuk memilih sendiri dari kisi emoji atau mengetik emoji; pilihan itu disimpan di kolom `ikon` Sheet dan dipakai lagi saat nama yang sama diketik. Bisa juga diubah di tab Riwayat.
 
 ## Poster dan kolase
 Semua fitur poster dan kolase dari versi HTML sudah ada:
@@ -53,3 +63,6 @@ Catatan:
 - Font poster (Gaegu, Playfair Display SC, Hanken Grotesk) dimuat dari Google Fonts; kalau gagal dimuat dipakai font cadangan.
 - Kirim gambar + teks lewat menu bagikan HP butuh HTTPS dan browser yang mendukung. Kalau tidak didukung, gambar disimpan dan teks disalin.
 - Lunch dan Supper tidak punya poster, hanya laporan teks.
+
+## Biaya Gemini
+Menurut halaman harga Gemini (dicek 15 Oktober 2026), model ringan seperti `gemini-3.1-flash-lite` dan `gemini-3.5-flash-lite` punya **tier gratis** untuk input dan output. Batas per menit/hari bergantung model dan hanya terlihat di Google AI Studio (halaman Rate limit); batas itu tidak dijamin. Di tier gratis, isi permintaan boleh dipakai Google untuk meningkatkan produknya, jadi jangan kirim data sensitif (nama makanan aman). Tier berbayar baru berlaku kalau kamu menautkan akun penagihan di AI Studio. Satu pencarian makanan baru memakai sekitar ratusan token, jadi kalau suatu saat berbayar pun biayanya sangat kecil.

@@ -7,12 +7,14 @@ function HRow({ f }: { f: Food }) {
   const { patchFood, removeFood } = useFoods();
   const [k, setK] = useState(f.kkal != null ? String(f.kkal).replace(".", ",") : "");
   const [d, setD] = useState(f.deskripsi);
+  const [ik, setIk] = useState(f.ikon);
   return (
     <div className="hr">
       <div className="hn">{f.nama}</div>
       <button type="button" className="x" title="Hapus dari Sheet" onClick={() => { if (window.confirm(`Hapus "${f.nama}" dari Sheet?`)) removeFood(f.key); }}>✕</button>
       <input className="hk" inputMode="decimal" placeholder="kkal/100 g" value={k} onChange={(e) => setK(e.target.value)}
         onBlur={() => { const v = num(k); if (v !== f.kkal) patchFood(f.key, { kkal: v, status: "sudah dicek" }); }} />
+      <input className="hi" maxLength={8} placeholder="Ikon" aria-label="Ikon" value={ik} onChange={(e) => setIk(e.target.value)} onBlur={() => { if (ik.trim() !== f.ikon) patchFood(f.key, { ikon: ik.trim() }); }} />
       <select className="hs" value={f.status || "belum dicek"} onChange={(e) => patchFood(f.key, { status: e.target.value })}>
         <option value="belum dicek">belum dicek</option>
         <option value="sudah dicek">sudah dicek</option>
@@ -34,8 +36,8 @@ export default function RiwayatTab({ toast }: { toast: (m: string) => void }) {
 
   async function importOld(f: File) {
     try {
-      const o = JSON.parse(await f.text()) as Record<string, { n?: string; k?: number; d?: string }>;
-      const items = Object.values(o).filter((v) => v && typeof v.n === "string").map((v) => ({ n: v.n, k: v.k, d: v.d }));
+      const o = JSON.parse(await f.text()) as Record<string, { n?: string; k?: number; d?: string; i?: string }>;
+      const items = Object.values(o).filter((v) => v && typeof v.n === "string").map((v) => ({ n: v.n, k: v.k, d: v.d, i: v.i }));
       const r = await fetch("/api/foods/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);

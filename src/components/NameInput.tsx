@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { clean, fmt, norm } from "@/lib/text";
+import { clean, fmt, norm, toTitle } from "@/lib/text";
 import { Food, useFoods } from "./FoodsContext";
 
 type Props = { value: string; onChange: (v: string) => void; onFood: (f: Food) => void; placeholder?: string; label?: string; className?: string };
@@ -59,7 +59,7 @@ export default function NameInput({ value, onChange, onFood, placeholder = "Nama
         spellCheck={false}
         onChange={(e) => { setErr(null); clearTimeout(timer.current); onChange(e.target.value); }}
         onFocus={() => setFocus(true)}
-        onBlur={() => { setFocus(false); commit(value); }}
+        onBlur={() => { setFocus(false); const t = toTitle(value); if (t && t !== value) onChange(t); commit(t || value); }}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
       />
       {sugg.length > 0 && (

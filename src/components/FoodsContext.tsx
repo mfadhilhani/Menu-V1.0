@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { norm } from "@/lib/text";
 
-export type Food = { key: string; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string };
+export type Food = { key: string; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string; ikon: string };
 type Resolved = { food: Food | null; error?: string; hint?: string; retry?: boolean };
 type Ctx = {
   foods: Food[]; authed: boolean | null; mock: boolean; loadError: string;
@@ -10,7 +10,7 @@ type Ctx = {
   setFoods: (f: Food[]) => void;
   resolve: (name: string) => Promise<Resolved>;
   addManual: (name: string, kkal: number) => Promise<boolean>;
-  patchFood: (key: string, body: { kkal?: number | null; deskripsi?: string; status?: string }) => Promise<boolean>;
+  patchFood: (key: string, body: { kkal?: number | null; deskripsi?: string; status?: string; ikon?: string }) => Promise<boolean>;
   removeFood: (key: string) => Promise<boolean>;
   login: (pin: string) => Promise<string | null>;
 };
@@ -76,7 +76,7 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
     return { food: null, error: (r.message as string) || "Gagal mencari data", hint: r.hint as string | undefined, retry: !!r.retry };
   }, [setFoods]);
 
-  const patchFood = useCallback(async (key: string, body: { kkal?: number | null; deskripsi?: string; status?: string }) => {
+  const patchFood = useCallback(async (key: string, body: { kkal?: number | null; deskripsi?: string; status?: string; ikon?: string }) => {
     const r = await fetch("/api/foods", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, ...body }) });
     if (!r.ok) return false;
     const j = await r.json();
