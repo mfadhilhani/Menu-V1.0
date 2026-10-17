@@ -1,6 +1,6 @@
 "use client";
 import { testFoodReport, State, TF } from "@/lib/report";
-import { uid } from "@/lib/text";
+import { pad, uid } from "@/lib/text";
 import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
 import TfCollage from "./TfCollage";
@@ -30,8 +30,29 @@ export default function TestFoodTab({ s, up, setList, copy, wa, toast }: Props) 
   const add = (k: "menu" | "snack" | "buah") => setList(k)((l) => [...l, { id: uid(), n: "", k: "Ok" }]);
   const text = testFoodReport(s);
   const dinner = s.meal === "Dinner";
+  const now = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   return (
     <>
+      <section>
+        <h2>Waktu test food</h2>
+        <label className="chk" style={{ marginTop: 0 }}>
+          <input type="checkbox" checked={s.pukul} onChange={(e) => up(e.target.checked ? { pukul: true, jam: s.jam || now() } : { pukul: false })} /> Tampilkan “Pukul” di laporan
+        </label>
+        {s.pukul && (
+          <>
+            <div className="g2" style={{ marginTop: 8 }}>
+              <div><label htmlFor="jam">Jam</label><input id="jam" type="time" value={s.jam} onChange={(e) => up({ jam: e.target.value })} /></div>
+              <div>
+                <label htmlFor="zona">Zona waktu</label>
+                <select id="zona" value={s.zona} onChange={(e) => up({ zona: e.target.value })}>
+                  {["WIB", "WITA", "WIT"].map((z) => <option key={z}>{z}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="acts"><button type="button" onClick={() => up({ jam: now() })}>Pakai jam sekarang</button></div>
+          </>
+        )}
+      </section>
       <section>
         <h2>Daftar menu</h2>
         <Rows list={s.menu} set={setList("menu")} aria="Nama makanan" />

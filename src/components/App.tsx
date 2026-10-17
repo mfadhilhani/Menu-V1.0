@@ -16,7 +16,7 @@ const mkTF = (n: number): TF[] => Array.from({ length: n }, () => ({ id: uid(), 
 const mkKR = (n: number): KR[] => Array.from({ length: n }, () => ({ id: uid(), n: "", kkal: "", gram: "100" }));
 const mkSlot = (n: number): Slot[] => Array.from({ length: n }, () => ({ id: uid(), n: "", kkal: "", desc: "" }));
 const init = (): State => ({
-  tab: "tf", mealAuto: true, jn: "Reguler", live: false, liveMenu: "", dt: "", meal: "Breakfast", site: "BCP", sxi: "",
+  tab: "tf", pukul: false, jam: "", zona: "WITA", mealAuto: true, jn: "Reguler", live: false, liveMenu: "", dt: "", meal: "Breakfast", site: "BCP", sxi: "",
   ks: "Makanan dalam kondisi layak untuk dikonsumsi",
   menu: mkTF(6), snack: mkTF(2), buah: mkTF(1),
   ksite: "DH BCP", camp: "Camp Pelangi", rule: true, rows: mkKR(6),
@@ -36,7 +36,7 @@ export default function App() {
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || "null");
       if (d && d.v === 1 && d.state) {
-        setS((p) => ({ ...p, ...d.state, dt: d.day === todayStr() && d.state.dt ? d.state.dt : todayStr(), ...(d.day !== todayStr() ? { mealAuto: true } : {}) }));
+        setS((p) => ({ ...p, ...d.state, dt: d.day === todayStr() && d.state.dt ? d.state.dt : todayStr(), ...(d.day !== todayStr() ? { mealAuto: true, pukul: false, jam: "" } : {}) }));
         setLoaded(true);
         return;
       }

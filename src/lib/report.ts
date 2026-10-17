@@ -6,6 +6,7 @@ export type KR = { id: string; n: string; kkal: string; gram: string; ic?: strin
 export type Slot = { id: string; n: string; kkal: string; desc: string };
 export type State = {
   tab: "tf" | "kal" | "his";
+  pukul: boolean; jam: string; zona: string;
   mealAuto: boolean; jn: string; live: boolean; liveMenu: string; dt: string; meal: string; site: string; sxi: string; ks: string;
   menu: TF[]; snack: TF[]; buah: TF[];
   ksite: string; camp: string; rule: boolean; rows: KR[];
@@ -17,6 +18,8 @@ const EXC = /sambal|sambel|kerupuk|krupuk/i;
 export const siteName = (s: State) => (s.site === "__x" ? s.sxi.trim() || "-" : s.site);
 // Baris Live Cooking (kosong kalau tidak dicentang atau belum diisi).
 const liveText = (s: State) => (s.live && s.liveMenu.trim() ? toTitle(s.liveMenu) : "");
+// Baris "Pukul" (hanya kalau dicentang dan jamnya valid), format "10.34 WITA".
+const pukulText = (s: State) => (s.pukul && /^\d{1,2}:\d{2}$/.test(s.jam) ? `${s.jam.replace(":", ".")} ${s.zona}` : "");
 const dateText = (s: State) => { const p = dateParts(s.dt); return `${p.hari}, ${pad(p.d)} ${p.m} ${p.y}`; };
 
 function lines(arr: TF[], always: boolean) {
@@ -25,7 +28,7 @@ function lines(arr: TF[], always: boolean) {
 }
 export function testFoodReport(s: State) {
   const live = liveText(s);
-  let t = `*Test Food Menu ${s.jn.trim()}*\n${live ? `*Live Cooking : ${live}*\n` : ""}*${dateText(s)}*\n\n*Menu ${s.meal} Site ${siteName(s)}*\n${lines(s.menu, true)}`;
+  let t = `*Test Food Menu ${s.jn.trim()}*\n${live ? `*Live Cooking : ${live}*\n` : ""}*${dateText(s)}*${pukulText(s) ? `\n*Pukul : ${pukulText(s)}*` : ""}\n\n*Menu ${s.meal} Site ${siteName(s)}*\n${lines(s.menu, true)}`;
   if (s.meal === "Dinner") {
     ([["Snack", s.snack], ["Buah", s.buah]] as [string, TF[]][]).forEach(([h, arr]) => {
       const l = lines(arr, false);
