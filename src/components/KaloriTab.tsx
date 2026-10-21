@@ -1,5 +1,5 @@
 "use client";
-import { kaloriInfo, kaloriReport, LIMIT, State, warnaMessage, KR } from "@/lib/report";
+import { cur, kaloriInfo, kaloriReport, KR, LIMIT, State, Sync, warnaMessage } from "@/lib/report";
 import { useState } from "react";
 import { fmt, icon, norm, num } from "@/lib/text";
 import IconPicker from "./IconPicker";
@@ -15,7 +15,7 @@ import { uid } from "./TestFoodTab";
 
 type SetRows = (fn: (l: KR[]) => KR[]) => void;
 
-function Row({ r, handle, upd, del }: { r: KR; handle: React.ReactNode; upd: (id: string, p: Partial<KR>) => void; del: () => void }) {
+function Row({ r, handle, upd, del, sync }: { r: KR; handle: React.ReactNode; upd: (id: string, p: Partial<KR>) => void; del: () => void; sync: Sync }) {
   const { foods, patchFood, addManual } = useFoods();
   const [pick, setPick] = useState(false);
   const auto = icon(r.n) || "🍽️", shown = r.ic || auto;
@@ -45,23 +45,33 @@ function Row({ r, handle, upd, del }: { r: KR; handle: React.ReactNode; upd: (id
       <NameInput
         className="nm"
         value={r.n}
-        onChange={(v) => upd(r.id, { n: v })}
+        onChange={(v) => (r.sid ? sync.name("rows", r.sid, v) : upd(r.id, { n: v }))}
         onFood={(f) => {
-          upd(r.id, { n: f.nama, kkal: f.kkal != null ? String(f.kkal).replace(".", ",") : "", ic: f.ikon || r.ic });
+          if (r.sid) sync.food(r.sid, f);
+          else upd(r.id, { n: f.nama, kkal: f.kkal != null ? String(f.kkal).replace(".", ",") : "", ic: f.ikon || r.ic });
           if (!f.ikon && r.ic) patchFood(f.key, { ikon: r.ic }); // ikon yang dipilih sebelum nama dikenali ikut disimpan
         }}
       />
       <button type="button" className="x" aria-label="Hapus baris" onClick={del}>✕</button>
-      <input className="kk" inputMode="decimal" placeholder="kkal" title="kkal per 100 g" value={r.kkal} onChange={(e) => upd(r.id, { kkal: e.target.value })} onBlur={saveKkal} />
+      <input className="kk" inputMode="decimal" placeholder="kkal" title="kkal per 100 g" value={r.kkal} onChange={(e) => (r.sid ? sync.kkal(r.sid, e.target.value) : upd(r.id, { kkal: e.target.value }))} onBlur={saveKkal} />
       <input className="gr" inputMode="decimal" placeholder="gram" title="Porsi (gram)" value={r.gram} onChange={(e) => upd(r.id, { gram: e.target.value })} />
     </div>
   );
 }
 
-type Props = { s: State; up: (p: Partial<State>) => void; setRows: SetRows; setSlots: (m: Meal) => (fn: (l: Slot[]) => Slot[]) => void; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void };
-export default function KaloriTab({ s, up, setRows, setSlots, copy, wa, toast }: Props) {
+type Props = { s: State; up: (p: Partial<State>) => void; setRows: SetRows; setSlots: (fn: (l: Slot[]) => Slot[]) => void; sync: Sync; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void };
+export default function KaloriTab({ s, up, setRows, setSlots, sync, copy, wa, toast }: Props) {
+  const d = cur(s), pola = s.meal === "Breakfast" || s.meal === "Dinner";
   const upd = (id: string, p: Partial<KR>) => setRows((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
   const info = kaloriInfo(s), report = kaloriReport(s), warna = warnaMessage(s);
+  if (!pola) {
+    return (
+      <section>
+        <h2>Menu &amp; Kalori</h2>
+        <p className="hint">Untuk {s.meal} hanya laporan Test Food yang dipakai. Pilih Breakfast atau Dinner di Info umum untuk laporan kalori, poster, dan kolase kode warna.</p>
+      </section>
+    );
+  }
   return (
     <>
       <section>
@@ -74,8 +84,8 @@ export default function KaloriTab({ s, up, setRows, setSlots, copy, wa, toast }:
       </section>
       <section>
         <h2>Daftar makanan</h2>
-        <SortableList items={s.rows} onChange={(n) => setRows(() => n)}>
-          {(r, _i, handle) => <Row r={r} handle={handle} upd={upd} del={() => setRows((l) => l.filter((x) => x.id !== r.id))} />}
+        <SortableList items={d.rows} onChange={(n) => setRows(() => n)}>
+          {(r, _i, handle) => <Row r={r} handle={handle} upd={upd} del={() => setRows((l) => l.filter((x) => x.id !== r.id))} sync={sync} />}
         </SortableList>
         <div className="acts">
           <button className="p" type="button" onClick={() => setRows((l) => [...l, { id: uid(), n: "", kkal: "", gram: "100" }])}>+ Tambah baris</button>
@@ -83,8 +93,8 @@ export default function KaloriTab({ s, up, setRows, setSlots, copy, wa, toast }:
         </div>
         <div className="note">Di bawah nama: kiri = kkal per 100 g, kanan = porsi (gram). Kalori terisi dari Sheet; kalau kamu mengubah angkanya, Sheet ikut diperbarui. Baris tanpa kalori tidak ikut dijumlahkan. Geser ⠿ untuk memindah urutan.</div>
       </section>
-      {(s.meal === "Breakfast" || s.meal === "Dinner") && <PosterSection s={s} setSlots={setSlots} toast={toast} />}
-      <CardsSection rows={s.rows} toast={toast} />
+      {pola && <PosterSection s={s} setSlots={setSlots} sync={sync} toast={toast} />}
+      <CardsSection rows={d.rows} toast={toast} />
       <FotoSection text={report} toast={toast} />
       <section>
         <h2>Hasil laporan kalori</h2>

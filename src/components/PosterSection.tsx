@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { blobOf, drawKolase, drawPoster, Meal, SlotView } from "@/lib/canvas";
 import { useSlotPhotos } from "@/lib/photos";
-import { kaloriReport, Slot, State, warnaMessage } from "@/lib/report";
+import { cur, kaloriReport, Slot, State, Sync, warnaMessage } from "@/lib/report";
 import { saveBlob, shareFiles } from "@/lib/share";
 import { norm, num, toTitle } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
@@ -10,13 +10,13 @@ import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
 
 type SetSlots = (fn: (l: Slot[]) => Slot[]) => void;
-type Props = { s: State; setSlots: (m: Meal) => SetSlots; toast: (m: string) => void };
+type Props = { s: State; setSlots: SetSlots; sync: Sync; toast: (m: string) => void };
 
-export default function PosterSection({ s, setSlots, toast }: Props) {
+export default function PosterSection({ s, setSlots, sync, toast }: Props) {
   const meal = s.meal as Meal, dinner = meal === "Dinner";
-  const slots = dinner ? s.pd : s.pb, set = setSlots(meal);
+  const slots = cur(s).slots, set = setSlots;
   const { foods, patchFood, addManual } = useFoods();
-  const photos = useSlotPhotos([...s.pb, ...s.pd].map((x) => x.id));
+  const photos = useSlotPhotos(Object.values(s.md).flatMap((m) => m.slots).map((x) => x.id));
   const poster = useRef<HTMLCanvasElement>(null), kolase = useRef<HTMLCanvasElement>(null);
   const [hasKolase, setHasKolase] = useState(false);
   const upd = (id: string, p: Partial<Slot>) => set((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
@@ -61,10 +61,10 @@ export default function PosterSection({ s, setSlots, toast }: Props) {
               <h3>{handle}<span>Menu {i + 1}</span></h3>
               <NameInput
                 value={x.n}
-                onChange={(v) => upd(x.id, { n: v })}
-                onFood={(f) => upd(x.id, { n: f.nama, kkal: f.kkal != null ? String(f.kkal).replace(".", ",") : "", ...(dinner ? { desc: f.deskripsi || "" } : {}) })}
+                onChange={(v) => (x.sid ? sync.name("slots", x.sid, v) : upd(x.id, { n: v }))}
+                onFood={(f) => (x.sid ? sync.food(x.sid, f) : upd(x.id, { n: f.nama, kkal: f.kkal != null ? String(f.kkal).replace(".", ",") : "", ...(dinner ? { desc: f.deskripsi || "" } : {}) }))}
               />
-              <input style={{ marginTop: 6 }} inputMode="decimal" placeholder="kkal per 100 g" value={x.kkal} onChange={(e) => upd(x.id, { kkal: e.target.value })} onBlur={() => saveKkal(x)} />
+              <input style={{ marginTop: 6 }} inputMode="decimal" placeholder="kkal per 100 g" value={x.kkal} onChange={(e) => (x.sid ? sync.kkal(x.sid, e.target.value) : upd(x.id, { kkal: e.target.value }))} onBlur={() => saveKkal(x)} />
               {dinner && <input style={{ marginTop: 6 }} maxLength={120} placeholder="Deskripsi singkat" value={x.desc} onChange={(e) => upd(x.id, { desc: e.target.value })} />}
               <div className="pf">
                 {ph && <img className="pth" src={ph.url} alt={`Foto menu ${i + 1}`} />}

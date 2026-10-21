@@ -1,10 +1,11 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { KR, Slot, State, TF } from "@/lib/report";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { initMD } from "@/lib/pattern";
+import { KR, MealData, MealKey, Slot, State, Sync, TF } from "@/lib/report";
 import { idbClear } from "@/lib/idb";
 import { JENIS } from "@/lib/options";
 import ComboInput from "./ComboInput";
-import { mealByHour, todayStr, uid } from "@/lib/text";
+import { mealByHour, norm, todayStr, uid } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import KaloriTab from "./KaloriTab";
 import Login from "./Login";
@@ -18,13 +19,12 @@ const mkSlot = (n: number): Slot[] => Array.from({ length: n }, () => ({ id: uid
 const init = (): State => ({
   tab: "tf", pukul: false, jam: "", zona: "WITA", mealAuto: true, jn: "Reguler", live: false, liveMenu: "", dt: "", meal: "Breakfast", site: "BCP", sxi: "",
   ks: "Makanan dalam kondisi layak untuk dikonsumsi",
-  menu: mkTF(6), snack: mkTF(2), buah: mkTF(1),
-  ksite: "DH BCP", camp: "Camp Pelangi", rule: true, rows: mkKR(6),
-  pb: mkSlot(4), pd: mkSlot(6),
+  ksite: "DH BCP", camp: "Camp Pelangi", rule: true,
+  md: initMD(),
 });
 
 export default function App() {
-  const { authed, mock, loadError, reload } = useFoods();
+  const { authed, mock, loadError, reload, foods } = useFoods();
   const [s, setS] = useState<State>(init);
   const [loaded, setLoaded] = useState(false);
   const [msg, setMsg] = useState("");
@@ -36,7 +36,13 @@ export default function App() {
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || "null");
       if (d && d.v === 1 && d.state) {
-        setS((p) => ({ ...p, ...d.state, dt: d.day === todayStr() && d.state.dt ? d.state.dt : todayStr(), ...(d.day !== todayStr() ? { mealAuto: true, pukul: false, jam: "" } : {}) }));
+        setS((p) => {
+          // Daftar lama (sebelum ada pola) dibuang; draf hari lain memulai ulang dari pola supaya menu kemarin tidak terbawa.
+          const { menu, snack, buah, rows, pb, pd, ...rest } = d.state as Record<string, unknown>;
+          void menu; void snack; void buah; void rows; void pb; void pd;
+          const stale = d.day !== todayStr();
+          return { ...p, ...rest, dt: d.day === todayStr() && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State;
+        });
         setLoaded(true);
         return;
       }
@@ -51,9 +57,36 @@ export default function App() {
   }, [s, loaded]);
 
   const up = useCallback((p: Partial<State>) => setS((x) => ({ ...x, ...p })), []);
-  const setList = useCallback((k: "menu" | "snack" | "buah") => (fn: (l: TF[]) => TF[]) => setS((x) => ({ ...x, [k]: fn(x[k]) })), []);
-  const setSlots = useCallback((m: "Breakfast" | "Dinner") => (fn: (l: Slot[]) => Slot[]) => setS((x) => (m === "Breakfast" ? { ...x, pb: fn(x.pb) } : { ...x, pd: fn(x.pd) })), []);
-  const setRows = useCallback((fn: (l: KR[]) => KR[]) => setS((x) => ({ ...x, rows: fn(x.rows) })), []);
+  const setMD = useCallback((fn: (d: MealData, m: MealKey) => MealData) => setS((x) => { const m = x.meal as MealKey; return { ...x, md: { ...x.md, [m]: fn(x.md[m], m) } }; }), []);
+  const setList = useCallback((k: "menu" | "snack" | "buah") => (fn: (l: TF[]) => TF[]) => setMD((d) => ({ ...d, [k]: fn(d[k]) })), [setMD]);
+  const setSlots = useCallback((fn: (l: Slot[]) => Slot[]) => setMD((d) => ({ ...d, slots: fn(d.slots) })), [setMD]);
+  const setRows = useCallback((fn: (l: KR[]) => KR[]) => setMD((d) => ({ ...d, rows: fn(d.rows) })), [setMD]);
+  const sync = useMemo<Sync>(() => ({
+    name: (origin, sid, v) => setMD((d) => ({
+      ...d,
+      menu: d.menu.map((r) => (r.sid === sid ? { ...r, n: v } : r)),
+      snack: d.snack.map((r) => (r.sid === sid ? { ...r, n: v } : r)),
+      buah: d.buah.map((r) => (r.sid === sid ? { ...r, n: v } : r)),
+      rows: d.rows.map((r) => (r.sid !== sid ? r : origin === "rows" ? { ...r, n: v, pf: false } : { ...r, n: v, kkal: "", ic: undefined, pf: false })),
+      slots: d.slots.map((r) => (r.sid !== sid ? r : origin === "slots" ? { ...r, n: v } : { ...r, n: v, kkal: "", desc: "" })),
+    })),
+    food: (sid, f) => setMD((d, m) => {
+      const kk = f.kkal != null ? String(f.kkal).replace(".", ",") : "";
+      return {
+        ...d,
+        menu: d.menu.map((r) => (r.sid === sid ? { ...r, n: f.nama } : r)),
+        snack: d.snack.map((r) => (r.sid === sid ? { ...r, n: f.nama } : r)),
+        buah: d.buah.map((r) => (r.sid === sid ? { ...r, n: f.nama } : r)),
+        rows: d.rows.map((r) => (r.sid === sid ? { ...r, n: f.nama, kkal: kk, ic: f.ikon || r.ic, pf: false } : r)),
+        slots: d.slots.map((r) => (r.sid === sid ? { ...r, n: f.nama, kkal: kk, desc: m === "Dinner" ? f.deskripsi || "" : r.desc } : r)),
+      };
+    }),
+    kkal: (sid, v) => setMD((d) => ({
+      ...d,
+      rows: d.rows.map((r) => (r.sid === sid ? { ...r, kkal: v, pf: false } : r)),
+      slots: d.slots.map((r) => (r.sid === sid ? { ...r, kkal: v } : r)),
+    })),
+  }), [setMD]);
   const toast = useCallback((m: string) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(""), 2800); }, []);
   // Waktu makan mengikuti jam selama "otomatis" aktif; memilih manual mematikannya.
   useEffect(() => {
@@ -70,6 +103,27 @@ export default function App() {
     const id = setInterval(tick, 30000);
     return () => clearInterval(id);
   }, [loaded, s.mealAuto, toast]);
+  // Baris tetap (Nasi Putih, Sambal, dst) mengambil kalori dari Sheet begitu datanya ada.
+  useEffect(() => {
+    if (!loaded || !foods.length) return;
+    setS((x) => {
+      let ch = false;
+      const md = { ...x.md };
+      (["Breakfast", "Dinner"] as MealKey[]).forEach((m) => {
+        md[m] = {
+          ...md[m],
+          rows: md[m].rows.map((r) => {
+            if (!r.pf) return r;
+            const f = foods.find((y) => y.key === norm(r.n));
+            if (!f) return r;
+            ch = true;
+            return { ...r, n: f.nama, kkal: f.kkal != null ? String(f.kkal).replace(".", ",") : "", ic: f.ikon || r.ic, pf: false };
+          }),
+        };
+      });
+      return ch ? { ...x, md } : x;
+    });
+  }, [loaded, foods]);
   const copy = useCallback(async (t: string) => { try { await navigator.clipboard.writeText(t); toast("Teks disalin"); } catch { toast("Gagal menyalin, salin manual"); } }, [toast]);
   const wa = useCallback((t: string) => { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); }, []);
 
@@ -141,8 +195,8 @@ export default function App() {
               <div className="note" style={{ marginTop: 2 }}>Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis.</div>
               {s.site === "__x" && <div><label htmlFor="sxi">Nama site</label><input id="sxi" value={s.sxi} placeholder="Ketik nama site" onChange={(e) => up({ sxi: e.target.value })} /></div>}
             </section>
-            {s.tab === "tf" && <TestFoodTab s={s} up={up} setList={setList} copy={copy} wa={wa} toast={toast} />}
-            {s.tab === "kal" && <KaloriTab s={s} up={up} setRows={setRows} setSlots={setSlots} copy={copy} wa={wa} toast={toast} />}
+            {s.tab === "tf" && <TestFoodTab s={s} up={up} setList={setList} sync={sync} copy={copy} wa={wa} toast={toast} />}
+            {s.tab === "kal" && <KaloriTab s={s} up={up} setRows={setRows} setSlots={setSlots} sync={sync} copy={copy} wa={wa} toast={toast} />}
             {s.tab === "his" && <RiwayatTab toast={toast} />}
           </>
         )}

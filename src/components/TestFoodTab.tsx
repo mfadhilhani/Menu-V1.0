@@ -1,5 +1,5 @@
 "use client";
-import { testFoodReport, State, TF } from "@/lib/report";
+import { cur, Origin, State, Sync, testFoodReport, TF } from "@/lib/report";
 import { pad, uid } from "@/lib/text";
 import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
@@ -8,7 +8,7 @@ import TfCollage from "./TfCollage";
 type SetList = (fn: (l: TF[]) => TF[]) => void;
 export { uid } from "@/lib/text";
 
-function Rows({ list, set, aria }: { list: TF[]; set: SetList; aria: string }) {
+function Rows({ list, set, aria, sync, origin }: { list: TF[]; set: SetList; aria: string; sync: Sync; origin: Origin }) {
   const upd = (id: string, p: Partial<TF>) => set((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
   return (
     <SortableList items={list} onChange={(n) => set(() => n)}>
@@ -16,7 +16,7 @@ function Rows({ list, set, aria }: { list: TF[]; set: SetList; aria: string }) {
         <div className="row">
           {handle}
           <b>{i + 1}.</b>
-          <NameInput value={r.n} label={`${aria} ${i + 1}`} onChange={(v) => upd(r.id, { n: v })} onFood={(f) => upd(r.id, { n: f.nama })} />
+          <NameInput value={r.n} label={`${aria} ${i + 1}`} onChange={(v) => (r.sid ? sync.name(origin, r.sid, v) : upd(r.id, { n: v }))} onFood={(f) => (r.sid ? sync.food(r.sid, f) : upd(r.id, { n: f.nama }))} />
           <input value={r.k} placeholder="Ket." aria-label={`Keterangan ${i + 1}`} onChange={(e) => upd(r.id, { k: e.target.value })} />
           <button type="button" className="x" aria-label={`Hapus baris ${i + 1}`} onClick={() => set((l) => l.filter((x) => x.id !== r.id))}>✕</button>
         </div>
@@ -25,8 +25,9 @@ function Rows({ list, set, aria }: { list: TF[]; set: SetList; aria: string }) {
   );
 }
 
-type Props = { s: State; up: (p: Partial<State>) => void; setList: (k: "menu" | "snack" | "buah") => SetList; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void };
-export default function TestFoodTab({ s, up, setList, copy, wa, toast }: Props) {
+type Props = { s: State; up: (p: Partial<State>) => void; setList: (k: "menu" | "snack" | "buah") => SetList; sync: Sync; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void };
+export default function TestFoodTab({ s, up, setList, sync, copy, wa, toast }: Props) {
+  const d = cur(s);
   const add = (k: "menu" | "snack" | "buah") => setList(k)((l) => [...l, { id: uid(), n: "", k: "Ok" }]);
   const text = testFoodReport(s);
   const dinner = s.meal === "Dinner";
@@ -55,7 +56,7 @@ export default function TestFoodTab({ s, up, setList, copy, wa, toast }: Props) 
       </section>
       <section>
         <h2>Daftar menu</h2>
-        <Rows list={s.menu} set={setList("menu")} aria="Nama makanan" />
+        <Rows list={d.menu} set={setList("menu")} aria="Nama makanan" sync={sync} origin="menu" />
         <p className="hint">Ketik nama makanan: saran dari data Sheet muncul. Selesai mengetik, data dicocokkan atau ditambahkan otomatis. Geser ⠿ untuk memindah urutan.</p>
         <div className="acts"><button className="p" type="button" onClick={() => add("menu")}>+ Tambah menu</button></div>
       </section>
@@ -63,12 +64,12 @@ export default function TestFoodTab({ s, up, setList, copy, wa, toast }: Props) 
         <>
           <section>
             <h2>Snack</h2>
-            <Rows list={s.snack} set={setList("snack")} aria="Nama snack" />
+            <Rows list={d.snack} set={setList("snack")} aria="Nama snack" sync={sync} origin="snack" />
             <div className="acts"><button className="p" type="button" onClick={() => add("snack")}>+ Tambah snack</button></div>
           </section>
           <section>
             <h2>Buah</h2>
-            <Rows list={s.buah} set={setList("buah")} aria="Nama buah" />
+            <Rows list={d.buah} set={setList("buah")} aria="Nama buah" sync={sync} origin="buah" />
             <div className="acts"><button className="p" type="button" onClick={() => add("buah")}>+ Tambah buah</button></div>
           </section>
         </>
