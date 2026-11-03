@@ -12,7 +12,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         {/* Font untuk poster (nama menu dan deskripsi); kalau gagal dimuat, dipakai font cadangan. */}
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gaegu:wght@700&family=Playfair+Display+SC:wght@700&family=Hanken+Grotesk:wght@400&display=swap" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gaegu:wght@700&family=Playfair+Display+SC:wght@700&family=Hanken+Grotesk:wght@400&family=Ms+Madi&family=Archivo+Black&display=swap" />
       </head>
       <body>{children}</body>
     </html>

@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export const VIDEO = { W: 1920, H: 1080, FPS: 25, FADE: 0.6, EDGE: 0.5, MAX_FRAMES: 8, MIN_SEC: 2, MAX_SEC: 15, MAX_FRAME_BYTES: 3_000_000 };
+export const VIDEO = { W: 1920, H: 1080, FPS: 25, FADE: 0.6, EDGE: 0.5, MAX_FRAMES: 10, MIN_SEC: 2, MAX_SEC: 15, MAX_FRAME_BYTES: 3_000_000 };
 
 // Urutan: FFMPEG_PATH (kalau diisi) -> paket ffmpeg-static -> "ffmpeg" di PATH server.
 async function ffmpegPath() {
@@ -33,7 +33,8 @@ export function ffmpegArgs(files: string[], sec: number, out: string) {
   files.forEach((f) => args.push("-i", f));
   args.push("-f", "lavfi", "-t", total.toFixed(3), "-i", "anullsrc=channel_layout=stereo:sample_rate=44100");
   const fit = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=0xCEDEEB,setsar=1,format=yuv420p,` +
-    `loop=loop=-1:size=1:start=0,setpts=N/${FPS}/TB,trim=duration=${len.toFixed(3)}`;
+    // fps=... wajib: loop tidak mencantumkan frame rate (1/0), dan xfade di ffmpeg statis (ffmpeg-static) menolaknya.
+    `loop=loop=-1:size=1:start=0,setpts=N/${FPS}/TB,fps=${FPS},trim=duration=${len.toFixed(3)}`;
   const parts = files.map((_, i) => `[${i}:v]${fit}[v${i}]`);
   let last = "v0";
   for (let i = 1; i < n; i++) {

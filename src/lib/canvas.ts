@@ -202,11 +202,48 @@ export function tvFrame(card: HTMLCanvasElement) {
   X.drawImage(card, x, y, w, h);
   return c;
 }
-// Kartu-kartu untuk video: menu yang punya nama atau foto, sama seperti kolase kode warna.
-export async function tvFrames(items: SlotView[]) {
-  const out: HTMLCanvasElement[] = [];
-  for (const p of items.filter((p) => p.name.trim() || p.img)) out.push(tvFrame(await landscapeCard(p)));
-  return out;
+// Sampul video: template "Menu" + jenis menu (tulisan tangan) + "SITE <nama>" dari Info umum.
+// Penutup: gambar "Selamat Menikmati" apa adanya. Ganti file di public/assets untuk mengubah desain.
+const SCRIPT = '"Ms Madi", "Snell Roundhand", "Brush Script MT", "Segoe Script", "Apple Chancery", cursive';
+const HEAVY = '"Archivo Black", "Arial Black", "Helvetica Neue", Arial, sans-serif';
+const fit = (X: Ctx, t: string, font: (fs: number) => string, fs: number, max: number, min: number, step: number) => {
+  X.font = font(fs);
+  while (X.measureText(t).width > max && fs > min) { fs -= step; X.font = font(fs); }
+};
+export async function tvCover(jenis: string, site: string) {
+  const [bg] = await Promise.all([
+    loadSrc("/assets/video-sampul.jpg"),
+    document.fonts.load(`400 200px "Ms Madi"`, jenis || "Menu").catch(() => {}),
+    document.fonts.load(`400 120px "Archivo Black"`, "SITE").catch(() => {}),
+  ]);
+  const c = document.createElement("canvas"); c.width = TV_W; c.height = TV_H;
+  const X = ctx2d(c); X.imageSmoothingQuality = "high";
+  X.drawImage(bg, 0, 0, TV_W, TV_H);
+  X.textAlign = "center"; X.textBaseline = "middle";
+  const j = jenis.trim();
+  if (j) {
+    X.fillStyle = "#2A4744";
+    fit(X, j, (fs) => `400 ${fs}px ${SCRIPT}`, 300, 1560, 110, 10);
+    X.fillText(j, TV_W / 2, 640);
+  }
+  const st = ("Site " + site.trim()).toUpperCase();
+  X.fillStyle = "#40421A";
+  fit(X, st, (fs) => `400 ${fs}px ${HEAVY}`, 150, 1700, 60, 6);
+  X.fillText(st, TV_W / 2, 955);
+  return c;
+}
+export async function tvEnd() {
+  const bg = await loadSrc("/assets/video-penutup.jpg");
+  const c = document.createElement("canvas"); c.width = TV_W; c.height = TV_H;
+  ctx2d(c).drawImage(bg, 0, 0, TV_W, TV_H);
+  return c;
+}
+// Urutan video: sampul, kartu tiap menu (yang punya nama atau foto, sama seperti kolase), penutup.
+export async function tvFrames(items: SlotView[], info: { jenis: string; site: string }) {
+  const cards: HTMLCanvasElement[] = [];
+  for (const p of items.filter((p) => p.name.trim() || p.img)) cards.push(tvFrame(await landscapeCard(p)));
+  if (!cards.length) return [];
+  return [await tvCover(info.jenis, info.site), ...cards, await tvEnd()];
 }
 
 // ---------- kolase foto ----------

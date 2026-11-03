@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { blobOf, drawKolase, drawPoster, Meal, SlotView, tvFrames } from "@/lib/canvas";
 import { useSlotPhotos } from "@/lib/photos";
-import { cur, kaloriReport, Slot, State, Sync, warnaMessage } from "@/lib/report";
+import { cur, kaloriReport, siteName, Slot, State, Sync, warnaMessage } from "@/lib/report";
 import { saveBlob, shareFiles } from "@/lib/share";
 import { norm, num, toTitle } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
@@ -42,7 +42,7 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
   const makeVideo = async () => {
     setVbusy("Menyiapkan kartu…");
     try {
-      const frames = await tvFrames(mkViews());
+      const frames = await tvFrames(mkViews(), { jenis: s.jn, site: siteName(s) });
       if (!frames.length) { toast("Isi nama atau foto minimal satu menu"); return; }
       let blobs: Blob[] = [];
       for (const q of [0.9, 0.75, 0.6]) {           // jaga total kiriman di bawah ~4 MB (batas Vercel 4,5 MB)
@@ -52,7 +52,7 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
       const fd = new FormData();
       fd.append("sec", "5");
       blobs.forEach((b, i) => fd.append("frames", b, `kartu-${i + 1}.jpg`));
-      setVbusy(`Membuat video di server (${frames.length} kartu)…`);
+      setVbusy(`Membuat video di server (${frames.length - 2} menu)…`);
       const r = await fetch("/api/video", { method: "POST", body: fd });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -141,7 +141,7 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
         <button type="button" className="p" disabled={!hasKolase} onClick={() => send("kolase")}>Kirim poster kode warna + pesan kode warna ke WhatsApp</button>
       </div>
       <h3 className="ph">Video untuk TV (MP4)</h3>
-      <p className="hint">Kartu kode warna tiap menu tampil bergantian, 5 detik per kartu, ukuran 1920×1080. Video dibuat di server, jadi hasilnya sama di semua HP.</p>
+      <p className="hint">Urutan: sampul (jenis menu dan site dari Info umum), kartu kode warna tiap menu, lalu penutup “Selamat Menikmati”. 5 detik per gambar, ukuran 1920×1080. Video dibuat di server, jadi hasilnya sama di semua HP.</p>
       <div className="acts">
         <button type="button" className="p" disabled={!hasKolase || !!vbusy} onClick={makeVideo}>{vbusy || (vid ? "Buat ulang video" : "Buat video TV (MP4)")}</button>
       </div>
