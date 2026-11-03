@@ -185,6 +185,30 @@ export async function drawKolase(cv: HTMLCanvasElement, items: SlotView[]) {
   return true;
 }
 
+// ---------- frame video TV ----------
+// Satu kartu landscape di tengah layar 1920x1080. Sisi kiri/kanan diisi dengan meregangkan kolom
+// piksel paling tepi kartu, jadi latar menyatu dengan desain kartu (tanpa bilah hitam/putih).
+export const TV_W = 1920, TV_H = 1080;
+export function tvFrame(card: HTMLCanvasElement) {
+  const c = document.createElement("canvas"); c.width = TV_W; c.height = TV_H;
+  const X = ctx2d(c); X.imageSmoothingQuality = "high";
+  const k = Math.min(TV_W / card.width, TV_H / card.height), w = Math.round(card.width * k), h = Math.round(card.height * k);
+  const x = Math.round((TV_W - w) / 2), y = Math.round((TV_H - h) / 2);
+  X.fillStyle = "#CEDEEB"; X.fillRect(0, 0, TV_W, TV_H);
+  if (x > 0) {
+    X.drawImage(card, 0, 0, 1, card.height, 0, y, x + 1, h);
+    X.drawImage(card, card.width - 1, 0, 1, card.height, x + w - 1, y, TV_W - x - w + 1, h);
+  }
+  X.drawImage(card, x, y, w, h);
+  return c;
+}
+// Kartu-kartu untuk video: menu yang punya nama atau foto, sama seperti kolase kode warna.
+export async function tvFrames(items: SlotView[]) {
+  const out: HTMLCanvasElement[] = [];
+  for (const p of items.filter((p) => p.name.trim() || p.img)) out.push(tvFrame(await landscapeCard(p)));
+  return out;
+}
+
 // ---------- kolase foto ----------
 // Kolase Test Food (grid rapat, 1080 px).
 export function drawTfCollage(cv: HTMLCanvasElement, imgs: Bmp[]) {

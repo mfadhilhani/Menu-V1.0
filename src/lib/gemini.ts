@@ -1,6 +1,6 @@
 // Panggilan Gemini (hanya dari server). Satu angka kkal per 100 g dan deskripsi maksimal 14 kata.
 // Tahan gangguan: coba ulang, lalu pindah ke model cadangan kalau model utama sibuk (503) atau kena batas (429).
-import { clean } from "./text";
+import { clean, norm, sim } from "./text";
 
 export type AIFood = { nama: string; deskripsi: string; kkal: number };
 export type AICode = "busy" | "quota" | "config" | "notfood" | "bad";
@@ -11,7 +11,7 @@ class HttpErr extends Error { constructor(public status: number, public body: st
 
 const prompt = (name: string) =>
   `Kamu ahli gizi Indonesia. Untuk makanan atau minuman bernama "${name}" (sajian matang/siap santap di katering atau kantin di Indonesia), balas JSON dengan:
-- nama: nama baku Bahasa Indonesia, huruf kapital di awal tiap kata, perbaiki typo bila ada
+- nama: nama persis seperti yang diketik, huruf kapital di awal tiap kata. Hanya perbaiki typo atau salah ejaan. JANGAN menerjemahkan atau mengganti ke bahasa lain (Indonesia, Inggris, dan lainnya). Nama asing dan merek dagang (misalnya Chicken Katsu, Indomie, McFlurry) dipertahankan; kalau ejaannya salah, betulkan sesuai penulisan aslinya. Jika sudah benar atau kamu ragu itu typo, kembalikan apa adanya. Jangan menambah, menghapus, atau mengganti kata.
 - deskripsi: satu kalimat singkat, MAKSIMAL 14 kata, hanya hal umum yang pasti tentang makanan itu (jangan menebak bahan khusus)
 - kkal: SATU angka energi dalam kkal per 100 gram sajian matang (bukan rentang); rujuk Tabel Komposisi Pangan Indonesia (TKPI) bila ada
 Jika input bukan makanan atau minuman, isi kkal dengan 0.`;
@@ -54,7 +54,11 @@ async function once(model: string, name: string, key: string, ms: number): Promi
     const kkal = Number(o.kkal);
     if (!Number.isFinite(kkal) || kkal < 0 || kkal > 950) throw new AIError("bad", "kkal di luar batas");
     if (kkal === 0) throw new AIError("notfood");
-    const nama = clean(String(o.nama || name)).slice(0, 60) || clean(name);
+    // Pengaman: koreksi typo hanya mengubah sedikit huruf. Kalau hasil AI jauh berbeda dari yang diketik
+    // (misalnya diterjemahkan), pakai nama yang diketik.
+    const raw = clean(String(o.nama || name)).slice(0, 60);
+    const a = norm(name);
+    const nama = raw && (a.length < 5 || sim(a, norm(raw)) >= 0.75) ? raw : clean(name);
     return { nama, deskripsi: clean(String(o.deskripsi || "")).split(" ").slice(0, 14).join(" "), kkal: Math.round(kkal * 10) / 10 };
   } finally {
     clearTimeout(to);

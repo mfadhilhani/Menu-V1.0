@@ -6,7 +6,7 @@ Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, k
 Saat kamu selesai mengetik nama makanan (pindah kolom atau Enter):
 1. **Cocok persis** (tanpa membedakan huruf besar kecil, spasi dan tanda baca dirapikan) → data dari Sheet dipakai, tanpa AI. Kolom diganti dengan penulisan di Sheet.
 2. **Mirip** (typo) → muncul pop up "Apakah maksud kamu ini?". **Ya** = pakai data yang ada. **Bukan** = diperlakukan sebagai makanan baru.
-3. **Baru** → Gemini mencari nama baku, deskripsi (maks. 14 kata), dan satu angka kkal per 100 g, lalu baris baru ditambahkan ke Sheet dengan `sumber = AI` dan `status = belum dicek`.
+3. **Baru** → Gemini memeriksa penulisan nama (hanya typo yang dibetulkan; nama asing dan merek seperti "Chicken Katsu" atau "Indomie" tidak diterjemahkan), deskripsi (maks. 14 kata), dan satu angka kkal per 100 g, lalu baris baru ditambahkan ke Sheet dengan `sumber = AI` dan `status = belum dicek`.
 
 Kalau AI gagal (misalnya sedang sibuk), tidak ada baris yang ditulis. Muncul pesan singkat dengan tombol "Coba lagi", dan aplikasi mencoba sekali lagi otomatis setelah beberapa detik. Kamu juga bisa mengisi kalori manual: makanan itu langsung ditambahkan ke Sheet tanpa AI.
 Supaya deteksi typo bekerja sejak awal, isi Sheet dengan makanan yang sering dipakai (Riwayat → Impor cadangan lama, atau ketik langsung di Sheet). Sheet kosong berarti semua nama dianggap baru dan lewat AI.
@@ -35,6 +35,7 @@ Untuk mencoba tanpa kredensial: isi `MOCK_BACKEND=1` di `.env.local` (data semen
 ## Deploy ke Vercel
 Push ke GitHub, import di Vercel, isi semua variabel dari `.env.example` di Environment Variables, lalu Deploy. Jangan commit `.env.local`.
 Catatan: paket Hobby dibatasi untuk pemakaian pribadi nonkomersial; cek ketentuan terbaru di vercel.com.
+Video TV memakai paket `ffmpeg-static` (terpasang lewat `npm install`); `next.config.mjs` sudah mengatur supaya program ffmpeg ikut ke fungsi `/api/video`. Batas Vercel: kiriman dan jawaban maks. 4,5 MB per permintaan (kartu dikompres otomatis; video kartu diam biasanya di bawah 1 MB) dan waktu fungsi maks. 60 detik. Di server sendiri (VPS) cukup `npm install`, atau isi `FFMPEG_PATH` kalau sudah ada ffmpeg.
 
 ## Keamanan
 - Semua route `/api/*` (kecuali login) butuh login PIN (`APP_PIN`, cookie `httpOnly` bertanda tangan memakai `AUTH_SECRET`). Isi `AUTH_SECRET` dengan teks acak panjang.
@@ -66,6 +67,7 @@ Ikon di daftar makanan dipilih otomatis dari nama (lebih dari 100 kata kunci; je
 Semua fitur poster dan kolase dari versi HTML sudah ada:
 - **Poster menu** (tab Menu & Kalori, untuk Breakfast dan Dinner): form 4 menu (Breakfast, template Kantin BCP) atau 6 menu (Dinner, dengan deskripsi). Nama, kalori, dan deskripsi terisi dari Sheet. Foto disimpan di browser (IndexedDB), jadi tidak hilang saat reload. Geser ⠿ untuk memindah urutan; foto ikut pindah.
 - **Poster kode warna (kolase)**: satu kartu landscape per menu (foto, kalori, nama, kartu kode warna), dua ke samping lalu ke bawah.
+- **Video untuk TV (MP4)**: tombol "Buat video TV" di bawah poster. Kartu landscape tiap menu tampil bergantian 5 detik dengan transisi halus, 1920×1080, 25 fps, H.264 + audio senyap (diputar TV, HP, dan WhatsApp). Kartu digambar di HP, lalu MP4 disusun di server dengan ffmpeg (`/api/video`), jadi hasilnya sama di iPhone dan Android. Setelah jadi: putar untuk cek, lalu "Unduh video" atau "Simpan ke Galeri / bagikan". Maksimal 8 kartu per video.
 - **Kode warna makanan**: kartu per baris Daftar makanan, unduh satu per satu atau semua jadi satu gambar.
 - **Foto untuk laporan kalori** dan **Kolase foto Test Food**: unggah foto, kolase otomatis, unduh atau kirim ke WhatsApp bersama teks.
 - **Mulai baru** menghapus isian dan foto di browser ini (data di Sheet tidak tersentuh).
