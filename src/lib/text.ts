@@ -1,8 +1,10 @@
 // Normalisasi, kemiripan nama, ikon, format angka.
 export const uid = () => Math.random().toString(36).slice(2, 10);
 export const clean = (s: string) => s.normalize("NFKC").replace(/\s+/g, " ").trim();
-// Capitalize Each Word. Singkatan 1-3 huruf yang sudah huruf besar (BBQ, KFC) dipertahankan,
-// kecuali seluruh teks diketik huruf besar semua (mis. "NASI PUTIH" -> "Nasi Putih").
+// Kata bergaya merek: huruf pertama besar, ada huruf besar lain di tengah, dan ada huruf kecil (McFlurry, KitKat, PopMie).
+const brandCase = (letters: string) => /^\p{Lu}/u.test(letters) && /\p{Lu}/u.test(letters.slice(1)) && /\p{Ll}/u.test(letters);
+// Capitalize Each Word. Singkatan 1-3 huruf yang sudah huruf besar (BBQ, KFC) dan penulisan merek
+// seperti McFlurry atau KitKat dipertahankan, kecuali seluruh teks diketik huruf besar semua (mis. "NASI PUTIH" -> "Nasi Putih").
 export function toTitle(s: string) {
   const t = clean(s);
   const words = t.split(" ");
@@ -11,6 +13,7 @@ export function toTitle(s: string) {
     .map((w) => {
       const letters = w.replace(/[^\p{L}]/gu, "");
       if (!allUp && letters.length > 0 && letters.length <= 3 && letters === letters.toUpperCase() && letters !== letters.toLowerCase()) return w;
+      if (!allUp && brandCase(letters)) return w;
       return w.toLowerCase().replace(/\p{L}/u, (c) => c.toUpperCase());
     })
     .join(" ");
@@ -51,6 +54,75 @@ export function similar<T extends { key: string }>(q: string, list: T[]): T[] {
     .sort((a, b) => b.s - a.s)
     .slice(0, 3)
     .map((x) => x.f);
+}
+
+// Jarak edit dengan tukar dua huruf bersebelahan dihitung satu (typo "Ayma" -> "Ayam" = 1).
+export function dist(a: string, b: string) {
+  const m = a.length, n = b.length;
+  const d = Array.from({ length: m + 1 }, (_, i) => Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const c = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[m][n];
+}
+
+// Kata yang sudah pasti benar ejaannya: istilah makanan asing yang umum, variasi ejaan Indonesia yang lazim,
+// dan merek. Kata yang diketik persis seperti ini tidak pernah diubah oleh koreksi AI
+// (mencegah "Tea" -> "Teh", "Soup" -> "Sup", "Special" -> "Spesial", "Spaghetti" -> "Spageti").
+export const KNOWN_WORDS = new Set(`
+chicken beef lamb mutton pork duck fish dory salmon tuna shrimp prawn squid calamari crab lobster egg eggs tofu tempeh
+rice fried grilled roast roasted baked steamed boiled smoked crispy crunchy spicy sweet sour salty hot cold ice iced
+special original classic premium signature deluxe mix mixed with and of the in on style
+soup salad sauce dressing cheese cheesy milk tea coffee juice cream butter honey garlic onion pepper chili chilli
+black white red green yellow brown golden lemon lime orange apple banana strawberry blueberry chocolate choco vanilla
+caramel matcha mango coconut corn potato potatoes wedges fries french mashed sandwich burger pizza pasta spaghetti
+fettuccine penne bolognese carbonara aglio olio lasagna macaroni noodle noodles ramen udon soba katsu teriyaki yakiniku
+yakitori karaage tempura sushi gyoza dimsum dumpling dumplings bulgogi kimchi tteokbokki bibimbap japchae tom yum yam
+pad thai curry masala tikka biryani kebab shawarma steak sirloin tenderloin wagyu bbq barbeque barbecue wings wing
+nugget nuggets sausage hotdog bacon ham meatball meatballs fillet filet bowl platter set combo dessert pudding puding
+cake brownies brownie cookies cookie muffin waffle pancake toast bread bun croissant donut doughnut float latte
+cappuccino espresso americano mocha frappe smoothie milkshake shake yogurt yoghurt oat oatmeal cereal granola fruit
+fruits vegetable vegetables veggie omelette omelet scrambled sunny side up mentai nori mayo mayonnaise ketchup
+gravy cordon bleu schnitzel fish chips hash brown cocktail lemonade soda mojito
+nasi ayam sapi ikan telur tahu tempe sayur sayuran goreng bakar rebus kukus tumis kuah pedas manis asam gurih
+spesial balado rica rendang soto sop sup bakso mie mi bihun kwetiau sambal sambel cabe cabai kerupuk krupuk buah
+kue roti selai susu teh kopi jus es putih merah hijau kuning hitam saus keju bumbu kecap madu bawang daging kambing
+bebek udang cumi kepiting kerang jagung kentang wortel kol bayam kangkung gulai opor semur pepes lalapan geprek penyet
+indomie sedaap sarimi supermi popmie aqua sosro pocari milo ovaltine oreo chitato qtela kitkat silverqueen nescafe
+yakult cimory walls magnum mcflurry kfc mcd richeese fiesta sogood champ kanzler dancow indomilk ultramilk nutrisari
+marimas energen sprite fanta pepsi cola coca nestle pucuk frestea mizone kopiko torabika luwak abc
+spageti makaroni sosis nuget kroket risol risoles
+`.trim().split(/\s+/));
+
+// Ambil hanya perbaikan typo dari usulan nama AI. Aturan per kata:
+// - kata yang sama (beda huruf besar kecil saja) memakai penulisan AI, kecuali kamu mengetik gaya merek (McFlurry);
+// - kata yang dikenal (KNOWN_WORDS + kata yang sudah ada di Sheet) tidak diubah;
+// - kata lain hanya boleh beda sedikit huruf (1 huruf untuk kata pendek, 2-3 untuk kata panjang);
+// - jumlah dan urutan kata tidak boleh berubah, kecuali hanya memisah/menggabung spasi ("Ayamgoreng" -> "Ayam Goreng").
+// Kata yang ditolak tetap ditulis seperti yang kamu ketik, jadi terjemahan ("Chicken" -> "Ayam") tidak pernah lolos.
+export function typoOnly(typed: string, ai: string, known: Set<string> = new Set()) {
+  const t = clean(typed), a = clean(ai);
+  if (!a) return { nama: t, rejected: [] as string[] };
+  const tw = t.split(" "), aw = a.split(" ");
+  const isKnown = (w: string) => KNOWN_WORDS.has(w) || known.has(w);
+  const limit = (len: number) => (len <= 6 ? 1 : len <= 9 ? 2 : 3);
+  if (tw.length !== aw.length) {
+    const x = norm(t).replace(/ /g, ""), y = norm(a).replace(/ /g, "");
+    const ok = Math.abs(tw.length - aw.length) === 1 && dist(x, y) <= 1;
+    return ok ? { nama: a, rejected: [] } : { nama: t, rejected: [a] };
+  }
+  const rejected: string[] = [];
+  const out = tw.map((w, i) => {
+    const v = aw[i], x = norm(w), y = norm(v);
+    if (x === y) return brandCase(w.replace(/[^\p{L}]/gu, "")) ? w : v;
+    if (!x || !y || isKnown(x) || /\d/.test(x + y) || dist(x, y) > limit(x.length)) { rejected.push(`${w} -> ${v}`); return w; }
+    return v;
+  });
+  return { nama: out.join(" "), rejected };
 }
 
 export const fmt = (n: number) => n.toLocaleString("id-ID", { maximumFractionDigits: 2 });

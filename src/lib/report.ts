@@ -26,8 +26,8 @@ export const LIMIT = 1800;
 const EXC = /sambal|sambel|kerupuk|krupuk/i;
 
 export const siteName = (s: State) => (s.site === "__x" ? s.sxi.trim() || "-" : s.site);
-// Baris Live Cooking (kosong kalau tidak dicentang atau belum diisi).
-const liveText = (s: State) => (s.live && s.liveMenu.trim() ? toTitle(s.liveMenu) : "");
+// Baris Live Cooking: hanya untuk Dinner (kosong kalau bukan Dinner, tidak dicentang, atau belum diisi).
+const liveText = (s: State) => (s.meal === "Dinner" && s.live && s.liveMenu.trim() ? toTitle(s.liveMenu) : "");
 // Baris "Pukul" (hanya kalau dicentang dan jamnya valid), format "10.34 WITA".
 const pukulText = (s: State) => (s.pukul && /^\d{1,2}:\d{2}$/.test(s.jam) ? `${s.jam.replace(":", ".")} ${s.zona}` : "");
 const dateText = (s: State) => { const p = dateParts(s.dt); return `${p.hari}, ${pad(p.d)} ${p.m} ${p.y}`; };

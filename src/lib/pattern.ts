@@ -27,8 +27,21 @@ export function buildMeal(m: MealKey): MealData {
       slots: [sl("m1"), sl("m2"), sl("m3"), sl("m4"), sl("kue1"), sl("kue2")],
     };
   }
-  // Lunch dan Supper: belum ada pola, hanya Test Food.
-  return { menu: Array.from({ length: 6 }, () => tf()), snack: [], buah: [], rows: [], slots: [] };
+  // Lunch dan Supper (hanya Test Food): 1 Nasi Putih | 2-5 menu berubah | 6 Sambal.
+  return {
+    menu: [tf("nasi", "Nasi Putih"), tf("m1"), tf("m2"), tf("m3"), tf("m4"), tf("sambal", "Sambal")],
+    snack: [], buah: [], rows: [], slots: [],
+  };
+}
+// Draf hari ini yang dibuat sebelum Lunch/Supper punya pola: kalau daftarnya masih kosong, isi dengan pola baru.
+// Daftar yang sudah kamu isi tidak disentuh.
+export function fillMealPattern(md: Record<MealKey, MealData>): Record<MealKey, MealData> {
+  const out = { ...md };
+  (["Lunch", "Supper"] as MealKey[]).forEach((m) => {
+    const menu = out[m]?.menu;
+    if (!menu || (!menu.some((r) => r.sid) && menu.every((r) => !r.n.trim()))) out[m] = buildMeal(m);
+  });
+  return out;
 }
 export const initMD = (): Record<MealKey, MealData> => ({
   Breakfast: buildMeal("Breakfast"), Lunch: buildMeal("Lunch"), Dinner: buildMeal("Dinner"), Supper: buildMeal("Supper"),

@@ -1,6 +1,6 @@
 // Panggilan Gemini (hanya dari server). Satu angka kkal per 100 g dan deskripsi maksimal 14 kata.
 // Tahan gangguan: coba ulang, lalu pindah ke model cadangan kalau model utama sibuk (503) atau kena batas (429).
-import { clean, norm, sim } from "./text";
+import { clean, typoOnly } from "./text";
 
 export type AIFood = { nama: string; deskripsi: string; kkal: number };
 export type AICode = "busy" | "quota" | "config" | "notfood" | "bad";
@@ -11,8 +11,17 @@ class HttpErr extends Error { constructor(public status: number, public body: st
 
 const prompt = (name: string) =>
   `Kamu ahli gizi Indonesia. Untuk makanan atau minuman bernama "${name}" (sajian matang/siap santap di katering atau kantin di Indonesia), balas JSON dengan:
-- nama: nama persis seperti yang diketik, huruf kapital di awal tiap kata. Hanya perbaiki typo atau salah ejaan. JANGAN menerjemahkan atau mengganti ke bahasa lain (Indonesia, Inggris, dan lainnya). Nama asing dan merek dagang (misalnya Chicken Katsu, Indomie, McFlurry) dipertahankan; kalau ejaannya salah, betulkan sesuai penulisan aslinya. Jika sudah benar atau kamu ragu itu typo, kembalikan apa adanya. Jangan menambah, menghapus, atau mengganti kata.
-- deskripsi: satu kalimat singkat, MAKSIMAL 14 kata, hanya hal umum yang pasti tentang makanan itu (jangan menebak bahan khusus)
+- nama: tulis ulang nama yang diketik dengan huruf kapital di awal tiap kata. Tugasmu HANYA membetulkan typo (huruf yang salah ketik, kurang, lebih, atau tertukar).
+  ATURAN WAJIB untuk nama:
+  1. JANGAN menerjemahkan ke bahasa apa pun. Kata bahasa Inggris, Jepang, Korea, Thailand, Italia, Arab, dan lainnya tetap dalam bahasa aslinya.
+  2. Merek dagang (Indomie, Pop Mie, McFlurry, KitKat, Milo, Yakult) dipertahankan; kalau ejaannya salah, betulkan sesuai penulisan resmi merek itu.
+  3. Jumlah dan urutan kata tetap sama. Jangan menambah, menghapus, atau mengganti kata dengan sinonim.
+  4. Variasi ejaan yang lazim bukan typo, biarkan (Sop/Sup, Mie/Mi, Cabe/Cabai, Sambel/Sambal, Krupuk/Kerupuk).
+  5. Kalau sudah benar atau kamu ragu itu typo, kembalikan persis seperti yang diketik.
+  Contoh: "Chiken Katsu" -> "Chicken Katsu" (BUKAN "Ayam Katsu"); "Fried Rice Special" -> "Fried Rice Special" (BUKAN "Nasi Goreng Spesial");
+  "Beef Teriyaky Bowl" -> "Beef Teriyaki Bowl"; "Indomi Goreng" -> "Indomie Goreng"; "Ice Lemon Tea" -> "Ice Lemon Tea" (BUKAN "Es Teh Lemon");
+  "Ayam Bakar Madu" -> "Ayam Bakar Madu" (BUKAN "Honey Grilled Chicken"); "Sop Buntut" -> "Sop Buntut"; "Rendng Sapi" -> "Rendang Sapi".
+- deskripsi: satu kalimat singkat dalam bahasa Indonesia, MAKSIMAL 14 kata, hanya hal umum yang pasti tentang makanan itu (jangan menebak bahan khusus)
 - kkal: SATU angka energi dalam kkal per 100 gram sajian matang (bukan rentang); rujuk Tabel Komposisi Pangan Indonesia (TKPI) bila ada
 Jika input bukan makanan atau minuman, isi kkal dengan 0.`;
 
@@ -30,7 +39,7 @@ export const modelChain = () =>
   [process.env.GEMINI_MODEL || "gemini-3.1-flash-lite", ...(process.env.GEMINI_FALLBACK_MODELS ?? "gemini-3.5-flash-lite,gemini-3.6-flash,gemini-3.8-flash").split(",")]
     .map((s) => s.trim()).filter((m, i, a) => m && a.indexOf(m) === i);
 
-async function once(model: string, name: string, key: string, ms: number): Promise<AIFood> {
+async function once(model: string, name: string, key: string, ms: number, known: Set<string>): Promise<AIFood> {
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), ms);
   try {
@@ -54,11 +63,11 @@ async function once(model: string, name: string, key: string, ms: number): Promi
     const kkal = Number(o.kkal);
     if (!Number.isFinite(kkal) || kkal < 0 || kkal > 950) throw new AIError("bad", "kkal di luar batas");
     if (kkal === 0) throw new AIError("notfood");
-    // Pengaman: koreksi typo hanya mengubah sedikit huruf. Kalau hasil AI jauh berbeda dari yang diketik
-    // (misalnya diterjemahkan), pakai nama yang diketik.
-    const raw = clean(String(o.nama || name)).slice(0, 60);
-    const a = norm(name);
-    const nama = raw && (a.length < 5 || sim(a, norm(raw)) >= 0.75) ? raw : clean(name);
+    // Pengaman: dari usulan AI hanya perbaikan typo per kata yang dipakai. Terjemahan, kata pengganti,
+    // atau kata tambahan ditolak dan kata yang diketik dipertahankan (lihat typoOnly di text.ts).
+    const g = typoOnly(name, String(o.nama || "").slice(0, 80), known);
+    if (g.rejected.length) console.info("[gemini] koreksi nama ditolak:", name, "|", g.rejected.join(", "));
+    const nama = g.nama.slice(0, 60);
     return { nama, deskripsi: clean(String(o.deskripsi || "")).split(" ").slice(0, 14).join(" "), kkal: Math.round(kkal * 10) / 10 };
   } finally {
     clearTimeout(to);
@@ -67,7 +76,8 @@ async function once(model: string, name: string, key: string, ms: number): Promi
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
 
-export async function askGemini(name: string): Promise<AIFood> {
+// known: kata-kata yang sudah ada di Sheet (dianggap ejaan benar, tidak diubah AI).
+export async function askGemini(name: string, known: Set<string> = new Set()): Promise<AIFood> {
   if (process.env.MOCK_BACKEND === "1") return mock(name);
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new AIError("config", "GEMINI_API_KEY belum diisi");
@@ -78,7 +88,7 @@ export async function askGemini(name: string): Promise<AIFood> {
       const left = deadline - Date.now();
       if (left < 2500) throw last;
       try {
-        return await once(model, name, key, Math.min(9000, left));
+        return await once(model, name, key, Math.min(9000, left), known);
       } catch (e) {
         if (e instanceof AIError && e.code === "notfood") throw e;
         if (e instanceof HttpErr) {

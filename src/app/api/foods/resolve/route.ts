@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
       if (cands.length) return NextResponse.json({ status: "similar", candidates: cands });
     }
     if (!aiAllowed()) return NextResponse.json({ status: "error", message: "Batas AI hari ini habis", hint: "Batas panggilan AI per hari (AI_DAILY_LIMIT) tercapai. Isi kalori manual atau coba besok." });
-    const ai = await askGemini(nm);
+    // Kata yang sudah ada di Sheet dianggap ejaan benar, jadi tidak boleh diubah oleh koreksi AI.
+    const known = new Set(foods.flatMap((f) => f.key.split(" ")).filter(Boolean));
+    const ai = await askGemini(nm, known);
     const { food, created } = await addFood({ nama: toTitle(ai.nama), deskripsi: ai.deskripsi, kkal: ai.kkal, sumber: "AI", status: "belum dicek", ikon: "" });
     return NextResponse.json({ status: created ? "created" : "found", food });
   } catch (e) {

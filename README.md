@@ -2,11 +2,30 @@
 
 Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, kalori per 100 g) disimpan di Google Sheets dan dibaca/ditulis lewat server. Gemini hanya dipanggil dari server, jadi API key tidak pernah sampai ke browser.
 
+## Catatan perbaikan (5 November 2026)
+
+1. **Koreksi nama makanan hanya membetulkan typo.** Nama berbahasa asing dan merek tidak lagi diganti ke bahasa Indonesia atau bahasa lain. Prompt Gemini diperketat (dengan contoh), dan di server ada pengaman per kata: kata yang dikenal tidak pernah diubah, kata lain hanya boleh beda 1-3 huruf, dan jumlah serta urutan kata tidak boleh berubah. Contoh: "Chiken Katsu" jadi "Chicken Katsu", tapi "Chicken Katsu" tidak pernah jadi "Ayam Katsu"; "Ice Lemon Tea" tetap, tidak jadi "Es Teh Lemon". Pengaman lama punya celah: nama di bawah 5 huruf lolos tanpa dicek, dan satu kata yang diterjemahkan di nama panjang bisa lolos ("Rice Bowl" jadi "Nasi Bowl"). Keduanya sudah ditutup.
+2. **Penulisan merek dipertahankan** saat kapitalisasi otomatis: "McFlurry", "KitKat", "PopMie" tidak lagi berubah jadi "Mcflurry" atau "Kitkat".
+3. **Lunch dan Supper punya pola**: nomor 1 otomatis Nasi Putih dan nomor 6 otomatis Sambal. Draf hari ini yang daftar Lunch/Supper-nya masih kosong ikut terisi; daftar yang sudah diisi tidak disentuh.
+4. **Live Cooking khusus Dinner.** Pilihannya hanya muncul saat waktu makan Dinner, dan baris Live Cooking tidak ditulis di laporan Breakfast, Lunch, atau Supper (walau sebelumnya sempat dicentang).
+
+File yang diubah: `src/lib/text.ts`, `src/lib/gemini.ts`, `src/app/api/foods/resolve/route.ts`, `src/lib/pattern.ts`, `src/lib/report.ts`, `src/components/App.tsx`, `README.md`.
+
 ## Cara kerja nama makanan
 Saat kamu selesai mengetik nama makanan (pindah kolom atau Enter):
 1. **Cocok persis** (tanpa membedakan huruf besar kecil, spasi dan tanda baca dirapikan) → data dari Sheet dipakai, tanpa AI. Kolom diganti dengan penulisan di Sheet.
 2. **Mirip** (typo) → muncul pop up "Apakah maksud kamu ini?". **Ya** = pakai data yang ada. **Bukan** = diperlakukan sebagai makanan baru.
 3. **Baru** → Gemini memeriksa penulisan nama (hanya typo yang dibetulkan; nama asing dan merek seperti "Chicken Katsu" atau "Indomie" tidak diterjemahkan), deskripsi (maks. 14 kata), dan satu angka kkal per 100 g, lalu baris baru ditambahkan ke Sheet dengan `sumber = AI` dan `status = belum dicek`.
+
+### Pengaman koreksi nama
+
+Usulan nama dari AI tidak dipakai mentah-mentah. Server (`typoOnly` di `src/lib/text.ts`) membandingkannya kata per kata dengan yang kamu ketik:
+
+- Kata yang dikenal tidak pernah diubah. Yang dikenal adalah daftar `KNOWN_WORDS` (istilah makanan asing yang umum seperti Chicken, Rice, Tea, Soup, Special, Spaghetti; variasi ejaan seperti Sop/Sup, Mie/Mi, Sambel/Sambal; dan merek seperti Indomie, Milo, Yakult) ditambah semua kata yang sudah ada di Sheet.
+- Kata lain hanya boleh beda sedikit huruf: 1 huruf untuk kata sampai 6 huruf, 2 untuk 7-9 huruf, 3 untuk kata lebih panjang. Huruf tertukar ("Ayma" → "Ayam") dihitung satu.
+- Jumlah dan urutan kata harus sama, kecuali AI hanya memisah atau menggabung spasi ("Ayamgoreng" → "Ayam Goreng").
+
+Kata yang ditolak tetap ditulis seperti yang kamu ketik, dan penolakannya dicatat di log server (`[gemini] koreksi nama ditolak`). Kalau ada istilah asing atau merek yang sering kamu pakai dan belum ada di daftar, tambahkan ke `KNOWN_WORDS`, atau cukup simpan sekali di Sheet dengan ejaan yang benar.
 
 Kalau AI gagal (misalnya sedang sibuk), tidak ada baris yang ditulis. Muncul pesan singkat dengan tombol "Coba lagi", dan aplikasi mencoba sekali lagi otomatis setelah beberapa detik. Kamu juga bisa mengisi kalori manual: makanan itu langsung ditambahkan ke Sheet tanpa AI.
 Supaya deteksi typo bekerja sejak awal, isi Sheet dengan makanan yang sering dipakai (Riwayat → Impor cadangan lama, atau ketik langsung di Sheet). Sheet kosong berarti semua nama dianggap baru dan lewat AI.
@@ -44,15 +63,15 @@ Video TV memakai paket `ffmpeg-static` (terpasang lewat `npm install`); `next.co
 
 ## Info umum
 - **Jenis menu**: pilih dari daftar (Reguler, Tematik, BBQ, Healthy Food) atau ketik sendiri; yang kamu ketik diingat di daftar.
-- **Live Cooking**: centang, lalu isi menu yang live. Baris `👩‍🍳 Live Cooking : …` muncul di laporan kalori, dan `*Live Cooking : …*` di laporan Test Food (di antara judul dan tanggal).
+- **Live Cooking** (khusus Dinner): pilihan ini hanya muncul saat waktu makan Dinner. Centang, lalu isi menu yang live. Baris `👩‍🍳 Live Cooking : …` muncul di laporan kalori, dan `*Live Cooking : …*` di laporan Test Food (di antara judul dan tanggal). Di Breakfast, Lunch, dan Supper baris ini tidak pernah ditulis.
 - **Waktu makan otomatis** mengikuti jam: Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis; centang lagi untuk kembali ke jam.
-- Nama makanan otomatis ditulis **Capitalize Each Word** (singkatan 1-3 huruf besar seperti BBQ tetap).
+- Nama makanan otomatis ditulis **Capitalize Each Word** (singkatan 1-3 huruf besar seperti BBQ tetap, dan penulisan merek seperti McFlurry atau KitKat juga tetap).
 
 ## Pola daftar makanan dan sinkronisasi
 Tiap waktu makan punya daftarnya sendiri, dengan baris tetap yang terisi otomatis (bebas diubah, digeser, atau dihapus):
 - **Breakfast**: 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal, 7 Kerupuk, 8 Roti & Selai, 9 Gula, Kopi, Teh.
 - **Dinner**: 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal, 7 Buah, 8-9 Kue. Di Test Food, Buah dan Snack adalah nomor 7 dan 8-9.
-- **Lunch dan Supper**: belum ada pola, hanya Test Food (tab Menu & Kalori tidak dipakai).
+- **Lunch dan Supper**: 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal. Hanya Test Food (tab Menu & Kalori tidak dipakai).
 
 Baris yang sama (nomor 2-5, dan pada Dinner juga Buah dan Kue) **tersinkron** antara Test Food, Daftar makanan, dan Poster menu: isi di salah satu, yang lain langsung terisi (nama, kalori, dan deskripsi dari Sheet). Poster Breakfast (4 menu) = nomor 2-5; poster Dinner (6 menu) = nomor 2, 3, 4, 5, 8, 9. Sinkronisasi mengikuti baris (bukan posisinya), jadi menggeser urutan di satu daftar tidak mengubah urutan daftar lain. Baris yang kamu tambah sendiri tidak ikut tersinkron.
 Draf dari hari sebelumnya memulai lagi dari pola (menu kemarin tidak terbawa). Daftar makanan dari draf versi lama dibuang saat pembaruan ini.

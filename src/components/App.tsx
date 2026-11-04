@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { initMD } from "@/lib/pattern";
+import { fillMealPattern, initMD } from "@/lib/pattern";
 import { KR, MealData, MealKey, Slot, State, Sync, TF } from "@/lib/report";
 import { idbClear } from "@/lib/idb";
 import { JENIS } from "@/lib/options";
@@ -41,7 +41,8 @@ export default function App() {
           const { menu, snack, buah, rows, pb, pd, ...rest } = d.state as Record<string, unknown>;
           void menu; void snack; void buah; void rows; void pb; void pd;
           const stale = d.day !== todayStr();
-          return { ...p, ...rest, dt: d.day === todayStr() && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State;
+          const md = rest.md ? fillMealPattern(rest.md as State["md"]) : initMD();
+          return { ...p, ...rest, md, dt: d.day === todayStr() && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State;
         });
         setLoaded(true);
         return;
@@ -171,10 +172,12 @@ export default function App() {
                 <label htmlFor="jn">Jenis menu</label>
                 <ComboInput id="jn" value={s.jn} placeholder="Pilih atau ketik sendiri" options={JENIS} onChange={(v) => up({ jn: v })} />
               </div>
-              <div className="g1">
-                <label className="chk"><input type="checkbox" checked={s.live} onChange={(e) => up({ live: e.target.checked })} /> Live Cooking</label>
-                {s.live && <input id="live" value={s.liveMenu} placeholder="Menu yang live (mis. Menu Lalapan)" aria-label="Menu live cooking" onChange={(e) => up({ liveMenu: e.target.value })} style={{ marginTop: 6 }} />}
-              </div>
+              {s.meal === "Dinner" && (
+                <div className="g1">
+                  <label className="chk"><input type="checkbox" checked={s.live} onChange={(e) => up({ live: e.target.checked })} /> Live Cooking (khusus Dinner)</label>
+                  {s.live && <input id="live" value={s.liveMenu} placeholder="Menu yang live (mis. Menu Lalapan)" aria-label="Menu live cooking" onChange={(e) => up({ liveMenu: e.target.value })} style={{ marginTop: 6 }} />}
+                </div>
+              )}
               <div className="g1"><label htmlFor="dt">Tanggal (otomatis hari ini)</label><input id="dt" type="date" value={s.dt} onChange={(e) => up({ dt: e.target.value })} /></div>
               <div className="g2">
                 <div>
