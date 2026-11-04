@@ -2,7 +2,38 @@
 
 Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, kalori per 100 g) disimpan di Google Sheets dan dibaca/ditulis lewat server. Gemini hanya dipanggil dari server, jadi API key tidak pernah sampai ke browser.
 
-## Catatan perbaikan (5 November 2026)
+## Catatan perbaikan
+
+### Pembaruan 3 (5 November 2026)
+
+1. **Isian tersinkron antar perangkat (teks saja).** Menu bisa diketik di laptop lalu foto ditambahkan di HP, atau sebaliknya. Isian disimpan di tab baru `draf` pada Google Sheet yang sama (dibuat otomatis), dan tetap disimpan juga di `localStorage` supaya cepat dan aman saat offline. Cara kerjanya ada di bagian [Sinkronisasi isian](#sinkronisasi-isian).
+2. **Foto bersifat sementara.** Foto (poster, kolase Test Food, foto laporan kalori) otomatis dihapus saat web dibuka di hari kerja baru. Hari kerja berganti pukul 03.00, sama dengan awal Breakfast, jadi foto Supper yang diambil lewat tengah malam tidak ikut terhapus.
+3. **Draf juga berganti hari pukul 03.00** (sebelumnya tengah malam), dengan alasan yang sama. Kalau tab dibiarkan terbuka melewati pukul 03.00, halaman memuat ulang sendiri saat dibuka lagi.
+4. **Id baris pola dibuat tetap** (mis. `B-sl-m1`), bukan acak, supaya foto yang diunggah di HP menempel di kotak poster yang sama dengan isian dari laptop.
+5. **Daftar makanan dimuat ulang** saat kembali ke tab ini (paling sering sekali per menit), supaya makanan yang baru ditambahkan dari perangkat lain muncul di saran.
+6. **Mulai baru** sekarang mengembalikan isian ke pola di semua perangkat, dan menghapus foto di perangkat yang menekan tombol itu.
+
+File baru: `src/app/api/draft/route.ts`, `src/components/useDraftSync.ts`. File yang diubah: `src/lib/sheets.ts`, `src/lib/store.ts`, `src/lib/idb.ts`, `src/lib/text.ts`, `src/lib/pattern.ts`, `src/components/App.tsx`, `src/components/FoodsContext.tsx`, `.env.example`, `README.md`.
+
+**Setelah deploy:** tambahkan `SHEET_DRAFT_TAB=draf` di Environment Variables Vercel (opsional; tanpa itu nama tab bawaannya juga `draf`). Tidak ada pengaturan Google tambahan, karena akun layanan yang sama dipakai.
+
+### Pembaruan 2 (5 November 2026)
+
+1. **Test Food Breakfast cukup sampai nomor 6**: Nasi Putih, 4 menu yang berubah, Sambal. Kerupuk, Roti & Selai, dan Gula, Kopi, Teh tidak lagi muncul di Test Food, tapi tetap ada di Daftar makanan (laporan kalori). Draf hari ini ikut disesuaikan; baris yang kamu tambah sendiri tidak dihapus.
+2. **AI lebih cepat dan hemat**:
+   - Tingkat berpikir Gemini diatur per model (`thinkingLevel`): `minimal` untuk Flash-Lite dan Flash 3.6, `low` untuk Flash 3.8 (yang menolak `minimal`). Tanpa pengaturan ini Flash 3.6 dan 3.8 berpikir di tingkat `medium`, jadi lebih lambat dan memakai lebih banyak token. Kalau suatu model menolak pengaturan itu, permintaan diulang sekali tanpanya.
+   - Suhu (temperature) untuk Gemini 3 ke atas dibiarkan bawaan 1.0 sesuai saran Google (sebelumnya 0.1, yang menurut Google bisa membuat jawaban berulang atau menurun).
+   - Aturan prompt dipindah ke system instruction; isi permintaan cukup nama makanannya.
+   - Hasil AI disimpan 15 menit di memori server, dan nama yang sama yang ditanyakan bersamaan hanya memanggil AI sekali.
+   - Model yang tidak ditemukan (404) dilewati 6 jam, yang kena batas (429) dilewati 60 detik, jadi tidak membuang waktu mencoba model yang pasti gagal.
+   - Pop up "Apakah maksud kamu ini?" dicek dulu di browser, jadi muncul tanpa menunggu server.
+   - Jatah `AI_DAILY_LIMIT` dikembalikan kalau panggilan gagal karena AI sibuk, kuota habis, atau belum diatur.
+   - Log server mencatat waktu jawab dan jumlah token per panggilan (`[gemini] … ms, thinking=…, token in/berpikir/out=…`) untuk memantau.
+3. **Dokumentasi penyimpanan data**: lihat bagian [Penyimpanan data dan sinkronisasi antar perangkat](#penyimpanan-data-dan-sinkronisasi-antar-perangkat).
+
+File yang diubah: `src/lib/pattern.ts`, `src/lib/gemini.ts`, `src/lib/auth.ts`, `src/app/api/foods/resolve/route.ts`, `src/components/FoodsContext.tsx`, `README.md`.
+
+### Pembaruan 1 (5 November 2026)
 
 1. **Koreksi nama makanan hanya membetulkan typo.** Nama berbahasa asing dan merek tidak lagi diganti ke bahasa Indonesia atau bahasa lain. Prompt Gemini diperketat (dengan contoh), dan di server ada pengaman per kata: kata yang dikenal tidak pernah diubah, kata lain hanya boleh beda 1-3 huruf, dan jumlah serta urutan kata tidak boleh berubah. Contoh: "Chiken Katsu" jadi "Chicken Katsu", tapi "Chicken Katsu" tidak pernah jadi "Ayam Katsu"; "Ice Lemon Tea" tetap, tidak jadi "Es Teh Lemon". Pengaman lama punya celah: nama di bawah 5 huruf lolos tanpa dicek, dan satu kata yang diterjemahkan di nama panjang bisa lolos ("Rice Bowl" jadi "Nasi Bowl"). Keduanya sudah ditutup.
 2. **Penulisan merek dipertahankan** saat kapitalisasi otomatis: "McFlurry", "KitKat", "PopMie" tidak lagi berubah jadi "Mcflurry" atau "Kitkat".
@@ -10,6 +41,31 @@ Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, k
 4. **Live Cooking khusus Dinner.** Pilihannya hanya muncul saat waktu makan Dinner, dan baris Live Cooking tidak ditulis di laporan Breakfast, Lunch, atau Supper (walau sebelumnya sempat dicentang).
 
 File yang diubah: `src/lib/text.ts`, `src/lib/gemini.ts`, `src/app/api/foods/resolve/route.ts`, `src/lib/pattern.ts`, `src/lib/report.ts`, `src/components/App.tsx`, `README.md`.
+
+## Penyimpanan data dan sinkronisasi antar perangkat
+
+| Data | Disimpan di | Terlihat di perangkat lain? |
+|---|---|---|
+| Data makanan (nama, deskripsi, kkal, ikon, status) | Google Sheet, lewat server | Ya. Semua perangkat membaca Sheet yang sama (server menyimpan salinan 60 detik untuk menghemat kuota, jadi perubahan dari perangkat lain bisa terlambat sampai 1 menit). |
+| Isian (Info umum, Test Food, Daftar makanan, teks poster, kesimpulan) | Tab `draf` di Google Sheet, plus salinan di `localStorage` browser (kunci `tfm2_draft`) | Ya. Lihat [Sinkronisasi isian](#sinkronisasi-isian). Besoknya (setelah pukul 03.00) mulai lagi dari pola. |
+| Jenis menu yang kamu ketik sendiri | `localStorage` browser (kunci terpisah) | Tidak. |
+| Foto (poster, kolase Test Food, foto laporan kalori) | IndexedDB browser, basis data `tesfoodNext` | Tidak. Hanya di browser itu, dan dihapus otomatis saat hari kerja berganti (pukul 03.00). |
+| Poster PNG dan video MP4 | Tidak disimpan di server | Dibuat lalu langsung diunduh atau dibagikan dari perangkat itu. Video disusun di `/api/video` dan dikirim balik tanpa disimpan. |
+| Login PIN | Cookie per browser (30 hari) | Tidak. Tiap perangkat login sendiri. |
+
+Jadi makanan dan isian yang diketik di HP muncul di laptop, tapi foto tetap di perangkat tempat foto itu diunggah. `localStorage` saja tidak bisa dipakai untuk sinkronisasi, karena isinya hanya bisa dibaca browser itu sendiri. Karena itu salinan bersamanya disimpan di Sheet, dan `localStorage` tetap dipakai sebagai salinan lokal.
+
+### Sinkronisasi isian
+
+- Saat web dibuka, perangkat mengambil isian dari Sheet dulu sebelum mengirim apa pun, jadi perangkat yang baru dibuka tidak menimpa isian perangkat lain.
+- Setiap perubahan dikirim 1,5 detik setelah berhenti mengetik, dan langsung saat tab disembunyikan atau ditutup.
+- Perangkat lain mengambil isian terbaru tiap 20 detik selama halaman terbuka, dan saat kembali ke tab ini.
+- Kalau dua perangkat mengubah hampir bersamaan, yang terakhir diubah yang dipakai. Isian sebaiknya tidak diketik di dua perangkat pada saat yang sama.
+- Tab yang sedang dibuka (Test Food / Menu & Kalori / Riwayat) tidak ikut, jadi laptop dan HP bisa membuka tab berbeda.
+- Status tampil di atas Info umum: "Tersinkron, terakhir diubah 10.32 dari HP". Kalau offline, isian tetap tersimpan di perangkat itu dan terkirim otomatis saat online lagi (atau tekan "Coba sinkron").
+- Satu draf dipakai bersama oleh semua perangkat yang login dengan PIN yang sama. Kalau suatu saat web dipakai beberapa orang atau beberapa site sekaligus, tiap orang/site perlu draf sendiri (belum ada).
+- Isian disimpan sebagai JSON di baris 2 tab `draf` (kolom A waktu, B hari, C perangkat, D dan seterusnya isi). Jangan diubah manual.
+- Kuota: tiap perangkat yang terbuka membaca Sheet sekitar 3 kali per menit. Batas Google 60 per menit per pengguna, jadi aman untuk beberapa perangkat.
 
 ## Cara kerja nama makanan
 Saat kamu selesai mengetik nama makanan (pindah kolom atau Enter):
@@ -49,7 +105,7 @@ Untuk mencoba tanpa kredensial: isi `MOCK_BACKEND=1` di `.env.local` (data semen
 2. Buat Google Sheet, lalu bagikan ke email service account (`client_email`) sebagai **Editor**.
 3. `SHEET_ID` = bagian URL Sheet di antara `/d/` dan `/edit`.
 4. `GOOGLE_PRIVATE_KEY` = isi `private_key` dari JSON, baris baru ditulis sebagai `\n`.
-5. `GEMINI_API_KEY` dari Google AI Studio. Model utama di `GEMINI_MODEL` (bawaan `gemini-3.1-flash-lite`, model ringan yang stabil dan punya tier gratis) dan cadangan di `GEMINI_FALLBACK_MODELS`. Kalau satu model sibuk (503) atau kena batas (429), aplikasi mencoba ulang lalu pindah ke model berikutnya. Cek daftar model terbaru di dokumentasi Gemini; model 2.5 dijadwalkan dimatikan 16 Oktober 2026.
+5. `GEMINI_API_KEY` dari Google AI Studio. Model utama di `GEMINI_MODEL` (bawaan `gemini-3.1-flash-lite`, model ringan yang stabil dan punya tier gratis) dan cadangan di `GEMINI_FALLBACK_MODELS`. Kalau satu model sibuk (503) atau kena batas (429), aplikasi mencoba ulang lalu pindah ke model berikutnya. Tingkat berpikir diatur otomatis per model (lihat `thinkingFor` di `src/lib/gemini.ts`); kalau kamu mengganti model, periksa tabel `thinkingLevel` di dokumentasi Gemini. Cek daftar model terbaru di dokumentasi Gemini; model 2.5 dijadwalkan dimatikan 16 Oktober 2026.
 
 ## Deploy ke Vercel
 Push ke GitHub, import di Vercel, isi semua variabel dari `.env.example` di Environment Variables, lalu Deploy. Jangan commit `.env.local`.
@@ -69,12 +125,12 @@ Video TV memakai paket `ffmpeg-static` (terpasang lewat `npm install`); `next.co
 
 ## Pola daftar makanan dan sinkronisasi
 Tiap waktu makan punya daftarnya sendiri, dengan baris tetap yang terisi otomatis (bebas diubah, digeser, atau dihapus):
-- **Breakfast**: 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal, 7 Kerupuk, 8 Roti & Selai, 9 Gula, Kopi, Teh.
+- **Breakfast**: Daftar makanan 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal, 7 Kerupuk, 8 Roti & Selai, 9 Gula, Kopi, Teh. Test Food cukup sampai nomor 6 (Nasi Putih, 4 menu, Sambal).
 - **Dinner**: 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal, 7 Buah, 8-9 Kue. Di Test Food, Buah dan Snack adalah nomor 7 dan 8-9.
 - **Lunch dan Supper**: 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal. Hanya Test Food (tab Menu & Kalori tidak dipakai).
 
 Baris yang sama (nomor 2-5, dan pada Dinner juga Buah dan Kue) **tersinkron** antara Test Food, Daftar makanan, dan Poster menu: isi di salah satu, yang lain langsung terisi (nama, kalori, dan deskripsi dari Sheet). Poster Breakfast (4 menu) = nomor 2-5; poster Dinner (6 menu) = nomor 2, 3, 4, 5, 8, 9. Sinkronisasi mengikuti baris (bukan posisinya), jadi menggeser urutan di satu daftar tidak mengubah urutan daftar lain. Baris yang kamu tambah sendiri tidak ikut tersinkron.
-Draf dari hari sebelumnya memulai lagi dari pola (menu kemarin tidak terbawa). Daftar makanan dari draf versi lama dibuang saat pembaruan ini.
+Draf dari hari kerja sebelumnya (berganti pukul 03.00) memulai lagi dari pola (menu kemarin tidak terbawa). Daftar makanan dari draf versi lama dibuang saat pembaruan ini.
 
 ## Pukul (Test Food)
 Di tab Test Food, centang "Tampilkan Pukul" untuk menambah baris `*Pukul : 10.34 WITA*` tepat di bawah tanggal. Jam terisi dari jam sekarang saat dicentang dan bisa diubah; zona waktu WIB/WITA/WIT bisa dipilih (bawaan WITA). Hanya berlaku di laporan Test Food.
@@ -84,12 +140,12 @@ Ikon di daftar makanan dipilih otomatis dari nama (lebih dari 100 kata kunci; je
 
 ## Poster dan kolase
 Semua fitur poster dan kolase dari versi HTML sudah ada:
-- **Poster menu** (tab Menu & Kalori, untuk Breakfast dan Dinner): form 4 menu (Breakfast, template Kantin BCP) atau 6 menu (Dinner, dengan deskripsi). Nama, kalori, dan deskripsi terisi dari Sheet. Foto disimpan di browser (IndexedDB), jadi tidak hilang saat reload. Geser ⠿ untuk memindah urutan; foto ikut pindah.
+- **Poster menu** (tab Menu & Kalori, untuk Breakfast dan Dinner): form 4 menu (Breakfast, template Kantin BCP) atau 6 menu (Dinner, dengan deskripsi). Nama, kalori, dan deskripsi terisi dari Sheet. Foto disimpan di browser (IndexedDB), jadi tidak hilang saat reload, dan dihapus otomatis di hari kerja berikutnya. Geser ⠿ untuk memindah urutan; foto ikut pindah.
 - **Poster kode warna (kolase)**: satu kartu landscape per menu (foto, kalori, nama, kartu kode warna), dua ke samping lalu ke bawah.
 - **Video untuk TV (MP4)**: tombol "Buat video TV" di bawah poster. Urutan: sampul (`public/assets/video-sampul.jpg` + jenis menu dan "SITE ..." dari Info umum, font Ms Madi dan Archivo Black), kartu landscape tiap menu, lalu penutup `public/assets/video-penutup.jpg` ("Selamat Menikmati"). Tiap gambar tampil 5 detik dengan transisi halus, 1920×1080, 25 fps, H.264 + audio senyap (diputar TV, HP, dan WhatsApp). Kartu digambar di HP, lalu MP4 disusun di server dengan ffmpeg (`/api/video`), jadi hasilnya sama di iPhone dan Android. Setelah jadi: putar untuk cek, lalu "Unduh video" atau "Simpan ke Galeri / bagikan". Maksimal 10 gambar per video (sampul + 8 menu + penutup).
 - **Kode warna makanan**: kartu per baris Daftar makanan, unduh satu per satu atau semua jadi satu gambar.
 - **Foto untuk laporan kalori** dan **Kolase foto Test Food**: unggah foto, kolase otomatis, unduh atau kirim ke WhatsApp bersama teks.
-- **Mulai baru** menghapus isian dan foto di browser ini (data di Sheet tidak tersentuh).
+- **Mulai baru** mengembalikan isian ke pola di semua perangkat dan menghapus foto di browser ini (data makanan di Sheet tidak tersentuh).
 
 Catatan:
 - Gambar template ada di `public/assets/` (poster Breakfast dan Dinner, kartu landscape, logo, wajah kartu). Ganti file dengan nama yang sama untuk mengubah desain.

@@ -213,6 +213,12 @@ export function mealByHour(h: number) {
 export const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jum’at", "Sabtu"];
 export const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 export const pad = (n: number) => String(n).padStart(2, "0");
+// Hari kerja: berganti pukul 03.00 (awal Breakfast), jadi Supper yang lewat tengah malam masih terhitung hari yang sama.
+// Dipakai untuk menentukan kapan draf mulai lagi dari pola dan kapan foto dihapus.
+export function workDay(now = new Date()) {
+  const d = new Date(now.getTime() - 3 * 3600000);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 export function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

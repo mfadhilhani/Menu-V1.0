@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { aiAllowed, guard } from "@/lib/auth";
-import { AIError, askGemini } from "@/lib/gemini";
+import { aiAllowed, aiRefund, guard } from "@/lib/auth";
+import { AIError, askGemini, cachedAI } from "@/lib/gemini";
 import { addFood, listFoods } from "@/lib/store";
 import { clean, norm, similar, toTitle } from "@/lib/text";
 
@@ -22,10 +22,19 @@ export async function POST(req: NextRequest) {
       const cands = similar(nm, foods);
       if (cands.length) return NextResponse.json({ status: "similar", candidates: cands });
     }
-    if (!aiAllowed()) return NextResponse.json({ status: "error", message: "Batas AI hari ini habis", hint: "Batas panggilan AI per hari (AI_DAILY_LIMIT) tercapai. Isi kalori manual atau coba besok." });
-    // Kata yang sudah ada di Sheet dianggap ejaan benar, jadi tidak boleh diubah oleh koreksi AI.
-    const known = new Set(foods.flatMap((f) => f.key.split(" ")).filter(Boolean));
-    const ai = await askGemini(nm, known);
+    // Hasil AI yang baru saja didapat (mis. penulisan ke Sheet sempat gagal) dipakai lagi tanpa memotong jatah harian.
+    let ai = cachedAI(nm);
+    if (!ai) {
+      if (!aiAllowed()) return NextResponse.json({ status: "error", message: "Batas AI hari ini habis", hint: "Batas panggilan AI per hari (AI_DAILY_LIMIT) tercapai. Isi kalori manual atau coba besok." });
+      // Kata yang sudah ada di Sheet dianggap ejaan benar, jadi tidak boleh diubah oleh koreksi AI.
+      const known = new Set(foods.flatMap((f) => f.key.split(" ")).filter(Boolean));
+      try {
+        ai = await askGemini(nm, known);
+      } catch (e) {
+        if (e instanceof AIError && (e.code === "busy" || e.code === "quota" || e.code === "config")) aiRefund();
+        throw e;
+      }
+    }
     const { food, created } = await addFood({ nama: toTitle(ai.nama), deskripsi: ai.deskripsi, kkal: ai.kkal, sumber: "AI", status: "belum dicek", ikon: "" });
     return NextResponse.json({ status: created ? "created" : "found", food });
   } catch (e) {

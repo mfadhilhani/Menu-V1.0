@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react";
-import { norm } from "@/lib/text";
+import { norm, similar } from "@/lib/text";
 
 export type Food = { key: string; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string; ikon: string };
 type Resolved = { food: Food | null; error?: string; hint?: string; retry?: boolean };
@@ -29,18 +29,26 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
   const ref = useRef<Food[]>([]);
   const setFoods = useCallback((f: Food[]) => { ref.current = f; setFoodsState(f); }, []);
 
+  const loadedAt = useRef(0);
   const reload = useCallback(async () => {
     try {
       const r = await fetch("/api/foods", { cache: "no-store" });
       if (r.status === 401) { setLoadError(""); setAuthed(false); return; }
       const j = await r.json().catch(() => ({}));
-      if (r.ok) { setLoadError(""); setFoods(j.foods || []); setMock(!!j.mock); setAuthed(true); }
+      if (r.ok) { setLoadError(""); setFoods(j.foods || []); setMock(!!j.mock); setAuthed(true); loadedAt.current = Date.now(); }
       else setLoadError((j.error as string) || `Server menjawab error ${r.status}`);
     } catch {
       setLoadError("Tidak bisa terhubung ke server");
     }
   }, [setFoods]);
   useEffect(() => { reload(); }, [reload]);
+  // Saat kembali ke tab ini, muat ulang daftar makanan (paling sering sekali per menit) supaya makanan
+  // yang baru ditambahkan dari perangkat lain ikut muncul di saran.
+  useEffect(() => {
+    const f = () => { if (document.visibilityState === "visible" && loadedAt.current && Date.now() - loadedAt.current > 60000) reload(); };
+    document.addEventListener("visibilitychange", f);
+    return () => document.removeEventListener("visibilitychange", f);
+  }, [reload]);
 
   const login = useCallback(async (pin: string) => {
     const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
@@ -62,11 +70,20 @@ export function FoodsProvider({ children }: { children: ReactNode }) {
       if (r.status === 401) { setAuthed(false); return { status: "error", message: "Perlu masuk lagi" }; }
       return r.json().catch(() => ({ status: "error", message: "Respons server tidak valid" }));
     };
-    let r = await post({ name });
-    if (r.status === "similar") {
-      const pick = await ask(name, r.candidates as Food[]);
+    // Cek "mirip" dulu di data yang sudah dimuat di browser: pop up langsung muncul tanpa menunggu server.
+    const near = similar(name, ref.current);
+    let r;
+    if (near.length) {
+      const pick = await ask(name, near);
       if (pick) return { food: pick };
       r = await post({ name, forceNew: true });
+    } else {
+      r = await post({ name });
+      if (r.status === "similar") {
+        const pick = await ask(name, r.candidates as Food[]);
+        if (pick) return { food: pick };
+        r = await post({ name, forceNew: true });
+      }
     }
     if (r.status === "found" || r.status === "created") {
       const f = r.food as Food;

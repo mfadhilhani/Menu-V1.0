@@ -6,7 +6,7 @@ export type Food = { key: string; nama: string; deskripsi: string; kkal: number 
 type Fields = Omit<Food, "key" | "diubah">;
 
 const mockOn = () => process.env.MOCK_BACKEND === "1";
-const g = globalThis as unknown as { __mock?: sheets.Row[]; __cache?: { at: number; rows: sheets.Row[] } };
+const g = globalThis as unknown as { __mock?: sheets.Row[]; __cache?: { at: number; rows: sheets.Row[] }; __draft?: sheets.DraftRow | null };
 const now = () => new Date().toISOString();
 const toFood = (r: sheets.Row): Food => ({ key: norm(r.nama), nama: toTitle(r.nama), deskripsi: r.deskripsi, kkal: r.kkal, sumber: r.sumber, status: r.status, diubah: r.diubah, ikon: r.ikon });
 
@@ -63,4 +63,24 @@ export async function deleteFood(key: string): Promise<boolean> {
   if (mockOn()) all.splice(i, 1);
   else { await sheets.deleteRow(all[i].row); drop(); }
   return true;
+}
+
+// Draf isian yang disinkronkan antar perangkat (teks saja, tanpa foto).
+// Aturan: yang terakhir diubah menang; draf dari hari kerja yang lebih baru tidak bisa ditimpa draf hari sebelumnya.
+export type Draft = { at: number; day: string; device: string; state: Record<string, unknown> };
+const toDraft = (r: sheets.DraftRow | null): Draft | null => {
+  if (!r) return null;
+  try { return { at: r.at, day: r.day, device: r.device, state: JSON.parse(r.json) }; } catch { return null; }
+};
+export async function getDraft(): Promise<Draft | null> {
+  if (mockOn()) return toDraft(g.__draft ?? null);
+  return toDraft(await sheets.readDraft());
+}
+export async function putDraft(d: Draft): Promise<{ ok: boolean; draft: Draft | null }> {
+  const cur = await getDraft();
+  if (cur && (cur.day > d.day || (cur.day === d.day && cur.at > d.at))) return { ok: false, draft: cur };
+  const row = { at: d.at, day: d.day, device: d.device, json: JSON.stringify(d.state) };
+  if (mockOn()) g.__draft = row;
+  else await sheets.writeDraft(row);
+  return { ok: true, draft: null };
 }

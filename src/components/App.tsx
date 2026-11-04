@@ -5,12 +5,13 @@ import { KR, MealData, MealKey, Slot, State, Sync, TF } from "@/lib/report";
 import { idbClear } from "@/lib/idb";
 import { JENIS } from "@/lib/options";
 import ComboInput from "./ComboInput";
-import { mealByHour, norm, todayStr, uid } from "@/lib/text";
+import { mealByHour, norm, pad, todayStr, uid, workDay } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import KaloriTab from "./KaloriTab";
 import Login from "./Login";
 import RiwayatTab from "./RiwayatTab";
 import TestFoodTab from "./TestFoodTab";
+import { useDraftSync } from "./useDraftSync";
 
 const KEY = "tfm2_draft";
 const mkTF = (n: number): TF[] => Array.from({ length: n }, () => ({ id: uid(), n: "", k: "Ok" }));
@@ -30,19 +31,24 @@ export default function App() {
   const [msg, setMsg] = useState("");
   const [sure, setSure] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const day = useRef(workDay());   // hari kerja draf ini (berganti pukul 03.00)
+  const at = useRef(0);            // waktu isian terakhir diubah (untuk sinkronisasi antar perangkat)
+  const resetting = useRef(false);
 
-  // Muat draf terakhir; kalau drafnya dari hari lain, isinya dipulihkan tapi tanggal diatur ke hari ini.
+  // Muat draf terakhir. Draf dari hari kerja sebelumnya memulai ulang dari pola (menu kemarin tidak terbawa),
+  // tapi pengaturan seperti site, jenis menu, dan camp tetap dipakai.
   useEffect(() => {
     try {
       const d = JSON.parse(localStorage.getItem(KEY) || "null");
       if (d && d.v === 1 && d.state) {
+        const stale = !d.day || d.day < workDay();
+        at.current = stale ? 0 : Number(d.at) || 0;
         setS((p) => {
-          // Daftar lama (sebelum ada pola) dibuang; draf hari lain memulai ulang dari pola supaya menu kemarin tidak terbawa.
+          // Daftar lama (sebelum ada pola) dibuang.
           const { menu, snack, buah, rows, pb, pd, ...rest } = d.state as Record<string, unknown>;
           void menu; void snack; void buah; void rows; void pb; void pd;
-          const stale = d.day !== todayStr();
           const md = rest.md ? fillMealPattern(rest.md as State["md"]) : initMD();
-          return { ...p, ...rest, md, dt: d.day === todayStr() && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State;
+          return { ...p, ...rest, md, dt: !stale && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State;
         });
         setLoaded(true);
         return;
@@ -52,8 +58,8 @@ export default function App() {
     setLoaded(true);
   }, []);
   useEffect(() => {
-    if (!loaded) return;
-    const t = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify({ v: 1, day: todayStr(), state: s })); } catch { /* penuh */ } }, 300);
+    if (!loaded || resetting.current) return;
+    const t = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify({ v: 1, day: day.current, at: at.current, state: s })); } catch { /* penuh */ } }, 300);
     return () => clearTimeout(t);
   }, [s, loaded]);
 
@@ -89,6 +95,15 @@ export default function App() {
     })),
   }), [setMD]);
   const toast = useCallback((m: string) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(""), 2800); }, []);
+  // Isian teks tersinkron antar perangkat (foto tidak ikut).
+  const onRemote = useCallback((dev: string) => toast(`Isian diperbarui dari ${dev || "perangkat lain"}`), [toast]);
+  const { status: syncSt, syncNow } = useDraftSync({ s, setS, loaded, authed, day, at, onRemote });
+  const hm = (t: number) => { const d = new Date(t); return `${pad(d.getHours())}.${pad(d.getMinutes())}`; };
+  const syncText =
+    syncSt.state === "saving" ? "Menyimpan ke semua perangkat…"
+    : syncSt.state === "error" ? "Belum tersinkron (offline?). Isian tetap aman di perangkat ini."
+    : syncSt.state === "ok" && syncSt.at ? `Tersinkron, terakhir diubah ${hm(syncSt.at)}${syncSt.device ? ` dari ${syncSt.device}` : ""}`
+    : syncSt.state === "ok" ? "Tersinkron" : "Menyinkronkan…";
   // Waktu makan mengikuti jam selama "otomatis" aktif; memilih manual mematikannya.
   useEffect(() => {
     if (!loaded || !s.mealAuto) return;
@@ -128,9 +143,12 @@ export default function App() {
   const copy = useCallback(async (t: string) => { try { await navigator.clipboard.writeText(t); toast("Teks disalin"); } catch { toast("Gagal menyalin, salin manual"); } }, [toast]);
   const wa = useCallback((t: string) => { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); }, []);
 
+  // Mulai baru: isian kembali ke pola di semua perangkat (lewat sinkronisasi), foto di perangkat ini dihapus.
   const reset = async () => {
     if (!sure) { setSure(true); setTimeout(() => setSure(false), 4000); return; }
-    try { localStorage.removeItem(KEY); } catch { /* abaikan */ }
+    resetting.current = true;
+    at.current = 0; // hentikan pengiriman isian lama
+    try { localStorage.setItem(KEY, JSON.stringify({ v: 1, day: workDay(), at: Date.now(), state: { ...init(), dt: todayStr() } })); } catch { /* abaikan */ }
     await idbClear();
     location.reload();
   };
@@ -162,8 +180,10 @@ export default function App() {
         {authed && (
           <>
             <div className="note" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "0 0 12px" }}>
-              <span>Isian dan foto tersimpan otomatis di browser ini.</span>
-              <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={reset}>{sure ? "Yakin? Klik lagi untuk hapus semua isian" : "Mulai baru"}</button>
+              <span>Isian tersimpan otomatis dan tersinkron ke perangkat lain; foto hanya di perangkat ini dan terhapus otomatis besok (pukul 03.00).</span>
+              <span className={syncSt.state === "error" ? "err" : "hint"} style={{ margin: 0 }} role="status">{syncText}</span>
+              {syncSt.state === "error" && <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => syncNow()}>Coba sinkron</button>}
+              <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={reset}>{sure ? "Yakin? Klik lagi: isian di semua perangkat kembali ke pola" : "Mulai baru"}</button>
             </div>
             {mock && <p className="hint">Mode coba aktif: data makanan hanya sementara dan AI berupa contoh.</p>}
             <section>

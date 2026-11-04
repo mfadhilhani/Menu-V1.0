@@ -47,3 +47,7 @@ export function aiAllowed() {
   ai.n++;
   return true;
 }
+// Kembalikan jatah kalau panggilan AI gagal sebelum menghasilkan jawaban (sibuk, kuota, atau belum diatur).
+export function aiRefund() {
+  if (ai.n > 0) ai.n--;
+}

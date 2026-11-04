@@ -84,3 +84,38 @@ export async function deleteRow(row: number) {
     body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: sh.properties.sheetId, dimension: "ROWS", startIndex: row - 1, endIndex: row } } }] }),
   });
 }
+
+// Tab draf: satu baris berisi isian (teks saja) yang disinkronkan antar perangkat.
+// Kolom: diubah_ms | hari | perangkat | isi (JSON, dipecah per 45.000 karakter karena batas satu sel 50.000).
+const DTAB = () => process.env.SHEET_DRAFT_TAB || "draf";
+let draftTab = "";
+const drng = (a: string) => encodeURIComponent(`${q(draftTab || DTAB())}!${a}`);
+const CHUNK = 45000, MAXC = 23; // kolom D sampai Z
+async function ensureDraftTab() {
+  if (draftTab) return;
+  const meta = await api(`?fields=sheets.properties(sheetId,title)`);
+  const titles: string[] = (meta.sheets || []).map((x: { properties: { title: string } }) => x.properties.title);
+  const found = titles.find((t) => t.toLowerCase() === DTAB().toLowerCase());
+  if (found) { draftTab = found; return; }
+  await api(`:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: DTAB() } } }] }) });
+  draftTab = DTAB();
+  await api(`/values/${drng("A1:D1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [["diubah_ms", "hari", "perangkat", "isi (JSON, jangan diubah manual)"]] }) });
+}
+export type DraftRow = { at: number; day: string; device: string; json: string };
+export async function readDraft(): Promise<DraftRow | null> {
+  await ensureDraftTab();
+  const d = await api(`/values/${drng("A2:Z2")}?valueRenderOption=UNFORMATTED_VALUE`);
+  const v: unknown[] = d.values?.[0] || [];
+  const json = v.slice(3).map((x) => String(x ?? "")).join("");
+  if (!json) return null;
+  return { at: Number(v[0]) || 0, day: String(v[1] ?? ""), device: String(v[2] ?? ""), json };
+}
+export async function writeDraft(r: DraftRow) {
+  await ensureDraftTab();
+  const parts: string[] = [];
+  for (let i = 0; i < r.json.length; i += CHUNK) parts.push(r.json.slice(i, i + CHUNK));
+  if (parts.length > MAXC) throw new Error("Isian terlalu besar untuk disimpan di Sheet");
+  // Angka waktu ditulis sebagai teks supaya tidak diubah format angka Sheet. Sel sisa dikosongkan.
+  const row = [String(r.at), r.day, r.device, ...parts, ...Array(MAXC - parts.length).fill("")];
+  await api(`/values/${drng("A2:Z2")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [row] }) });
+}

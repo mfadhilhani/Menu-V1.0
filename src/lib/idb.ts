@@ -1,12 +1,32 @@
 // Penyimpanan foto di browser (IndexedDB) supaya tidak hilang saat reload.
+// Foto bersifat sementara: saat dibuka di hari kerja baru (lewat pukul 03.00), semua foto hari sebelumnya dihapus.
+import { workDay } from "./text";
+
+const DAY_KEY = "__hari";
 let dbp: Promise<IDBDatabase> | null = null;
+function sweep(d: IDBDatabase) {
+  return new Promise<void>((res) => {
+    try {
+      const t = d.transaction("f", "readwrite"), st = t.objectStore("f"), today = workDay();
+      const g = st.get(DAY_KEY);
+      g.onsuccess = () => {
+        const v = g.result as string | undefined;
+        if (v && v < today) st.clear(); // foto dari hari kerja sebelumnya
+        st.put(today, DAY_KEY);
+      };
+      t.oncomplete = () => res();
+      t.onerror = () => res();
+      t.onabort = () => res();
+    } catch { res(); }
+  });
+}
 const open = () =>
   dbp ??= new Promise<IDBDatabase>((res, rej) => {
     const r = indexedDB.open("tesfoodNext", 1);
     r.onupgradeneeded = () => r.result.createObjectStore("f");
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
-  });
+  }).then(async (d) => { await sweep(d); return d; });
 async function op<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void): Promise<T | undefined> {
   try {
     const d = await open();
