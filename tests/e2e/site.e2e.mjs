@@ -140,6 +140,18 @@ try {
   await b.click("button.tb:has-text('Menu & Kalori')");
   const kb = await b.$("#ksite");
   check("Mulai baru di DPS: kode site laporan tetap 'DH DPS'", !kb || (await kb.inputValue()) === "DH DPS", kb ? await kb.inputValue() : "(waktu makan tanpa laporan kalori)");
+
+  // 9. Draf V1 yang memakai "Lainnya…" + nama ketikan: pengguna diberi tahu, laporan memakai site login
+  const cL = await ctx(), l = await page(cL);
+  await cL.addInitScript(() => {
+    if (!localStorage.getItem("tfm2_draft")) localStorage.setItem("tfm2_draft", JSON.stringify({ v: 1, day: "2099-01-01", at: 1, state: { site: "__x", sxi: "Site Lama", jn: "Reguler" } }));
+  });
+  await login(l, "bcp", "1111");
+  await infoUmum(l);
+  check("Draf V1 dengan site ketikan: pemberitahuan tampil", await l.isVisible(".warn:has-text('Site Lama')"));
+  check("Draf V1 dengan site ketikan: laporan memakai 'Site BCP'", (await report(l)).includes(" Site BCP*"));
+  await l.click(".warn button.lnk:has-text('Tutup')");
+  check("Pemberitahuan bisa ditutup", !(await l.isVisible(".warn:has-text('Site Lama')")));
 } catch (err) {
   check("Skenario berjalan sampai selesai", false, String(err).slice(0, 300));
 } finally {

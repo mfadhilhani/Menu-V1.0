@@ -11,11 +11,12 @@ const fail = (e: unknown) => {
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 // Cookie login dipakai bersama semua tab di browser. Kalau satu tab login ke site lain, tab lama yang masih
 // membuka site sebelumnya mengirim X-Site lama: ditolak 409 supaya isiannya tidak masuk ke draf site baru.
+// Tanpa X-Site = klien versi lama (sebelum V2.0), yang selalu BCP: hanya boleh ke draf BCP.
 function siteOf(req: NextRequest) {
   const s = session(req);
   if ("error" in s) return s;
-  const want = req.headers.get("x-site");
-  if (want && want !== s.site.id) return { error: NextResponse.json({ error: "site", site: s.site.id }, { status: 409 }) };
+  const want = req.headers.get("x-site") || "bcp";
+  if (want !== s.site.id) return { error: NextResponse.json({ error: "site", site: s.site.id }, { status: 409 }) };
   return s;
 }
 

@@ -30,6 +30,8 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [msg, setMsg] = useState("");
   const [sure, setSure] = useState(false);
+  // Draf V1 yang memakai "Lainnya…" + nama site ketikan: sejak V2.0 site mengikuti login, jadi pengguna diberi tahu.
+  const [legacySite, setLegacySite] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const day = useRef(workDay());   // hari kerja draf ini (berganti pukul 03.00)
   const at = useRef(0);            // waktu isian terakhir diubah (untuk sinkronisasi antar perangkat)
@@ -51,6 +53,8 @@ export default function App() {
         const { menu, snack, buah, rows, pb, pd, ...rest } = d.state as Record<string, unknown>;
         void menu; void snack; void buah; void rows; void pb; void pd;
         const md = rest.md ? fillMealPattern(rest.md as State["md"]) : initMD();
+        const typed = rest.site === "__x" ? String(rest.sxi ?? "").trim() : "";
+        if (typed && typed.toLowerCase() !== site.nama.toLowerCase()) setLegacySite(typed);
         setS({ ...base, ...rest, md, site: site.nama, sxi: "", dt: !stale && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State);
         setLoaded(true);
         return;
@@ -197,6 +201,14 @@ export default function App() {
             {mock && <p className="hint">Mode coba aktif: data makanan hanya sementara dan AI berupa contoh.</p>}
             <section>
               <h2>Info umum</h2>
+              {legacySite && (
+                <div className="warn" role="note">
+                  Isian ini sebelumnya memakai site &quot;{legacySite}&quot; lewat pilihan Lainnya. Sejak pembaruan ini nama site mengikuti login,
+                  jadi laporan sekarang memakai &quot;{site?.nama}&quot;. Kalau &quot;{legacySite}&quot; adalah site lain, minta admin mendaftarkannya,
+                  lalu masuk lewat Ganti site → Lainnya.{" "}
+                  <button type="button" className="lnk" onClick={() => setLegacySite("")}>Tutup</button>
+                </div>
+              )}
               <div className="g1">
                 <label htmlFor="jn">Jenis menu</label>
                 <ComboInput id="jn" value={s.jn} placeholder="Pilih atau ketik sendiri" options={JENIS} onChange={(v) => up({ jn: v })} />

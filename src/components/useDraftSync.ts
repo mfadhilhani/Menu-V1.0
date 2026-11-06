@@ -98,7 +98,7 @@ export function useDraftSync({ s, setS, loaded, authed, siteId, day, at, onRemot
     let r: Remote | null = null, ok = false;
     try {
       const res = await fetch(`/api/draft?since=${at.current}`, { cache: "no-store", headers: { "X-Site": siteId } });
-      if (await siteChanged(res)) return;
+      if (await siteChanged(res)) { busy.current = false; return; }
       const j = await res.json().catch(() => ({}));
       if (res.ok) { ok = true; r = (j.draft as Remote | null) ?? null; }
     } catch { /* offline */ }

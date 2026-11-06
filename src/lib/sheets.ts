@@ -96,14 +96,25 @@ export const draftTabName = (siteId: string) => (siteId === "bcp" ? DTAB() : `${
 const draftTabs = new Map<string, string>(); // nama yang diminta -> judul tab sebenarnya
 const drng = (tab: string, a: string) => encodeURIComponent(`${q(tab)}!${a}`);
 const CHUNK = 45000, MAXC = 23; // kolom D sampai Z
+async function findTab(want: string) {
+  const meta = await api(`?fields=sheets.properties(sheetId,title)`);
+  const titles: string[] = (meta.sheets || []).map((x: { properties: { title: string } }) => x.properties.title);
+  return titles.find((t) => t.toLowerCase() === want.toLowerCase());
+}
 async function ensureDraftTab(want: string) {
   const hit = draftTabs.get(want);
   if (hit) return hit;
-  const meta = await api(`?fields=sheets.properties(sheetId,title)`);
-  const titles: string[] = (meta.sheets || []).map((x: { properties: { title: string } }) => x.properties.title);
-  const found = titles.find((t) => t.toLowerCase() === want.toLowerCase());
+  const found = await findTab(want);
   if (found) { draftTabs.set(want, found); return found; }
-  await api(`:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: want } } }] }) });
+  try {
+    await api(`:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: want } } }] }) });
+  } catch (e) {
+    // Dua perangkat membuka site baru bersamaan: perangkat lain sudah membuat tabnya lebih dulu.
+    const again = await findTab(want);
+    if (!again) throw e;
+    draftTabs.set(want, again);
+    return again;
+  }
   await api(`/values/${drng(want, "A1:D1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [["diubah_ms", "hari", "perangkat", "isi (JSON, jangan diubah manual)"]] }) });
   draftTabs.set(want, want);
   return want;

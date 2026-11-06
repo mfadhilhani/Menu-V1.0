@@ -25,8 +25,10 @@ export async function POST(req: NextRequest) {
   const c = authContext();
   if ("error" in c) return c.error;
   const ip = clientIp(req);
-  if (!pinAllowed(ip)) return NextResponse.json({ error: "Terlalu banyak PIN salah dari jaringan ini. Coba lagi 10 menit lagi." }, { status: 429 });
   const b = (await req.json().catch(() => ({}))) as { site?: unknown; nama?: unknown; pin?: unknown };
+  // Cek batas SETELAH isi permintaan dibaca: dari sini sampai pinFailed() tidak ada await, jadi permintaan yang
+  // dikirim bersamaan tidak bisa lolos semua sebelum kegagalannya terhitung.
+  if (!pinAllowed(ip)) return NextResponse.json({ error: "Terlalu banyak PIN salah dari jaringan ini. Coba lagi 10 menit lagi." }, { status: 429 });
   const pin = String(b.pin ?? "").slice(0, 64), id = String(b.site ?? "bcp");
   const custom = id === "custom";
   const site = custom ? findSite(c.cfg, { nama: String(b.nama ?? "").slice(0, 80) }) : findSite(c.cfg, { id });

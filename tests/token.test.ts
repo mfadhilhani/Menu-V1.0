@@ -34,11 +34,14 @@ test("token kedaluwarsa, rahasia lain, site nonaktif, dan teks acak ditolak", ()
   for (const bad of ["", "abc", "v2.dps.1.2", "v2....", "1.2.3"]) assert.equal(readToken(S, bad, pinOf), null, bad);
 });
 
-test("token V1 (exp.tanda) tetap diterima sebagai BCP selama BCP aktif", () => {
+test("token V1 (exp.tanda) diterima sebagai BCP hanya selama PIN BCP masih PIN lama", () => {
   const exp = Date.now() + 86400000;
   const legacy = `${exp}.${createHmac("sha256", S).update(String(exp)).digest("hex")}`;
-  assert.deepEqual(readToken(S, legacy, pinOf), { siteId: "bcp", legacy: true });
-  assert.equal(readToken(S, legacy, (id) => (id === "dps" ? "2222" : undefined)), null);
+  assert.deepEqual(readToken(S, legacy, pinOf, { legacyPin: "1111" }), { siteId: "bcp", legacy: true });
+  assert.equal(readToken(S, legacy, (id) => (id === "dps" ? "2222" : undefined), { legacyPin: "1111" }), null);
+  // review #3: PIN BCP diganti (SITE_PINS.bcp beda dari APP_PIN) atau APP_PIN dihapus -> token V1 dicabut
+  assert.equal(readToken(S, legacy, (id) => ({ bcp: "9999" } as Record<string, string>)[id], { legacyPin: "1111" }), null);
+  assert.equal(readToken(S, legacy, pinOf), null);
 });
 
 test("AUTH_SECRET wajib di produksi; mode coba dan pengembangan punya cadangan", () => {

@@ -6,8 +6,9 @@ Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, k
 
 ### V2.0 Tahap 0–1 (6 November 2026, cabang `feature/menu-v2-development`, belum dirilis)
 
-1. **Login per site.** Layar masuk memilih site: BCP, DPS, Kintap Project (hanya yang sudah punya PIN), atau Lainnya (ketik nama site yang didaftarkan admin). Tiap site punya PIN sendiri lewat `SITE_PINS` dan `SITE_CUSTOM` (lihat [Site dan PIN](#site-dan-pin)). `APP_PIN` lama tetap berlaku sebagai PIN BCP, dan cookie login lama tetap diterima sebagai BCP, jadi pengguna BCP tidak perlu login ulang.
-2. **Isian terpisah per site di server.** Server menentukan site dari cookie login, tidak dari isi permintaan. BCP tetap memakai tab `draf`; site lain memakai tab `draf_<id>` (mis. `draf_dps`) yang dibuat otomatis. Perangkat DPS tidak bisa membaca atau menimpa isian BCP. Kalau satu tab browser login ke site lain, tab lama yang masih terbuka dimuat ulang dan tidak menulis ke site baru.
+1. **Login per site.** Layar masuk memilih site: BCP, DPS, Kintap Project (hanya yang sudah punya PIN), atau Lainnya (ketik nama site yang didaftarkan admin). Tiap site punya PIN sendiri lewat `SITE_PINS` dan `SITE_CUSTOM` (lihat [Site dan PIN](#site-dan-pin)). `APP_PIN` lama tetap berlaku sebagai PIN BCP, dan cookie login lama tetap diterima sebagai BCP selama PIN BCP masih sama dengan `APP_PIN`, jadi pengguna BCP tidak perlu login ulang. Mengganti PIN BCP mencabut cookie lama itu.
+2. **Isian terpisah per site di server.** Server menentukan site dari cookie login, tidak dari isi permintaan. BCP tetap memakai tab `draf`; site lain memakai tab `draf_<id>` (mis. `draf_dps`) yang dibuat otomatis. Perangkat DPS tidak bisa membaca atau menimpa isian BCP. Kalau satu tab browser login ke site lain, tab lama yang masih terbuka dimuat ulang dan tidak menulis ke site baru. Tab versi lama (sebelum V2.0) yang masih terbuka hanya bisa menulis ke BCP.
+   Kalau draf BCP sebelumnya memakai "Lainnya…" dengan nama site ketikan, aplikasi menampilkan pemberitahuan bahwa laporan sekarang memakai "Site BCP"; site itu perlu didaftarkan di `SITE_CUSTOM` agar punya data sendiri.
 3. **Isian dan foto di perangkat juga per site.** Draf `localStorage` dan foto IndexedDB dipisah per site; BCP memakai kunci lama, jadi isian dan foto yang sudah ada tetap terbaca.
 4. **Satu sumber identitas site** (`src/lib/site.ts`) untuk nama site di laporan Test Food, pesan kode warna, dan sampul video. Kode site laporan dan camp bawaan mengikuti site: BCP "DH BCP" / "Camp Pelangi", DPS "DH DPS", Kintap "DH Kintap", site custom dari `SITE_CUSTOM`. Info umum menampilkan site aktif dengan tombol **Ganti site**.
 5. **Perbaikan bug:** nama site yang diawali "Site" tidak lagi ditulis "Site Site …"; laporan tidak lagi menulis "Site -"; laporan kalori site lain tidak lagi berjudul "DH BCP"; Mulai baru tidak lagi mengembalikan site ke BCP.
@@ -145,7 +146,8 @@ Video TV memakai paket `ffmpeg-static` (terpasang lewat `npm install`); `next.co
 ## Keamanan
 - Semua route `/api/*` (kecuali login) butuh login PIN site (`SITE_PINS`/`SITE_CUSTOM`/`APP_PIN`), dengan cookie `httpOnly` bertanda tangan memakai `AUTH_SECRET`. `AUTH_SECRET` wajib di produksi (minimal 32 karakter acak).
 - Data isian dipisah per site di server; site selalu diambil dari cookie yang ditandatangani, tidak dari isi permintaan.
-- Batas PIN salah: 10 kali per 10 menit per IP (IP dari `X-Real-IP` yang diisi proxy). Login yang berhasil tidak dihitung.
+- Batas PIN salah: 10 kali per 10 menit per IP (IP dari `X-Real-IP` yang diisi proxy). Login yang berhasil tidak dihitung; permintaan yang dikirim bersamaan tetap terhitung satu per satu. Di server sendiri, aplikasi wajib di belakang Nginx dengan `proxy_set_header X-Real-IP $remote_addr;` dan port Node tidak dibuka ke internet; tanpa itu IP bisa dipalsukan dan batas ini tidak berarti.
+- Kesalahan konfigurasi `SITE_PINS`/`SITE_CUSTOM` hanya dijelaskan di log server; pengguna melihat pesan umum (nama site custom tidak bocor).
 - Batas panggilan AI per hari (`AI_DAILY_LIMIT`) dihitung di memori tiap instance server, jadi hanya pembatas kasar. Pasang juga batas biaya/kuota di Google AI Studio.
 - Kuota Google Sheets: 300 baca/menit per project dan 60/menit per pengguna; akun layanan dihitung satu pengguna. Karena itu isi Sheet di-cache 60 detik di server.
 

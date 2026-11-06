@@ -10,11 +10,17 @@ type Fail = { error: NextResponse };
 const serverError = (msg: string) => NextResponse.json({ error: msg }, { status: 500 });
 
 // Konfigurasi dibaca ulang tiap permintaan (murah), jadi perubahan env langsung berlaku setelah restart/redeploy.
+// Detail kesalahan SITE_PINS/SITE_CUSTOM hanya ditulis ke log server: pesannya bisa memuat nama site custom,
+// yang tidak boleh terlihat oleh orang yang belum login.
 export function authContext(): Ctx | Fail {
   try {
     return { cfg: siteConfig(), secret: authSecret() };
   } catch (e) {
-    if (e instanceof SiteConfigError || e instanceof AuthConfigError) return { error: serverError(e.message) };
+    if (e instanceof SiteConfigError) {
+      console.error("[auth] konfigurasi site tidak valid:", e.message);
+      return { error: serverError("Konfigurasi site di server tidak valid (SITE_PINS / SITE_CUSTOM). Detailnya ada di log server.") };
+    }
+    if (e instanceof AuthConfigError) return { error: serverError(e.message) };
     throw e;
   }
 }
@@ -27,7 +33,7 @@ export function session(req: NextRequest): { site: Site } | Fail {
   if ("error" in c) return c;
   if (openMock(c.cfg)) return { site: STANDARD.find((s) => s.id === DEFAULT_SITE_ID) as Site };
   if (!anyPin(c.cfg)) return { error: serverError("PIN belum diisi di server. Isi SITE_PINS (atau APP_PIN untuk BCP) dan AUTH_SECRET di .env.local atau Environment Variables, lalu restart/redeploy.") };
-  const info = readToken(c.secret, req.cookies.get(COOKIE)?.value, (id) => c.cfg.pins.get(id));
+  const info = readToken(c.secret, req.cookies.get(COOKIE)?.value, (id) => c.cfg.pins.get(id), { legacyPin: process.env.APP_PIN?.trim() });
   const site = info && siteById(c.cfg, info.siteId);
   return site ? { site } : { error: NextResponse.json({ error: "login" }, { status: 401 }) };
 }
@@ -39,6 +45,8 @@ export function guard(req: NextRequest): NextResponse | null {
 
 // IP klien untuk batas percobaan PIN. X-Real-IP diisi proxy (Nginx/Vercel) dan menimpa kiriman klien;
 // di X-Forwarded-For entri TERAKHIR yang ditambahkan proxy terdekat (entri pertama bisa dipalsukan klien).
+// PENTING: ini hanya aman kalau aplikasi berada di belakang proxy yang menimpa header itu (Vercel, atau Nginx dengan
+// `proxy_set_header X-Real-IP $remote_addr;`). Jangan buka port Node langsung ke internet.
 export function clientIp(req: NextRequest) {
   const real = req.headers.get("x-real-ip")?.trim();
   if (real) return real;
@@ -56,11 +64,16 @@ const live = (ip: string, now: number) => { const r = fails.get(ip); return r &&
 export function pinAllowed(ip: string) {
   return (live(ip, Date.now())?.n ?? 0) < MAX_FAILS;
 }
+const MAX_KEYS = 5000;
 export function pinFailed(ip: string) {
   const now = Date.now(), r = live(ip, now);
-  if (fails.size > 5000) for (const [k, v] of fails) if (now - v.t > WINDOW) fails.delete(k); // jangan tumbuh tanpa batas
-  if (r) r.n++;
-  else fails.set(ip, { n: 1, t: now });
+  if (r) { r.n++; return; }
+  if (fails.size >= MAX_KEYS) {
+    // Jangan tumbuh tanpa batas (mis. IP palsu yang terus berganti): buang yang kedaluwarsa, lalu yang paling lama.
+    for (const [k, v] of fails) if (now - v.t > WINDOW) fails.delete(k);
+    for (const k of fails.keys()) { if (fails.size < MAX_KEYS) break; fails.delete(k); }
+  }
+  fails.set(ip, { n: 1, t: now });
 }
 let ai = { day: "", n: 0 };
 export function aiAllowed() {

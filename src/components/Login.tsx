@@ -12,13 +12,14 @@ export default function Login() {
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  // Pilihan awal: site terakhir yang dipakai di perangkat ini, kalau masih tersedia.
+  // Pilihan awal: site terakhir yang dipakai di perangkat ini, kalau masih tersedia. Daftar site dimuat ulang tiap
+  // kembali ke tab; pilihan dan nama yang sedang diisi tidak ditimpa selama masih valid.
   useEffect(() => {
     let last: { site?: string; nama?: string } = {};
     try { last = JSON.parse(localStorage.getItem(LAST) || "{}"); } catch { /* abaikan */ }
-    const ok = last.site === CUSTOM || sites.some((s) => s.id === last.site);
-    setSite(ok && last.site ? last.site : sites[0]?.id || CUSTOM);
-    if (last.site === CUSTOM && last.nama) setNama(last.nama);
+    const valid = (v?: string) => v === CUSTOM || sites.some((s) => s.id === v);
+    setSite((cur) => (valid(cur) ? cur : valid(last.site) && last.site ? last.site : sites[0]?.id || CUSTOM));
+    if (last.site === CUSTOM && last.nama) setNama((cur) => cur || (last.nama as string));
   }, [sites]);
   const custom = site === CUSTOM;
   const ready = !!pin && (!custom || nama.trim().length >= 2);

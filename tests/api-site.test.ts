@@ -77,13 +77,13 @@ test("GET /api/auth: site aktif dan daftar site standar yang bisa dipilih", asyn
 test("isolasi draf: DPS tidak bisa membaca atau menimpa draf BCP", async () => {
   const bcp = (await login({ site: "bcp", pin: "1111" })).cookie;
   const dps = (await login({ site: "dps", pin: "2222" })).cookie;
-  const put = (cookie: string, at: number, jn: string, extra: object = {}) =>
-    draftPut(req("/api/draft", { method: "PUT", cookie, body: JSON.stringify({ at, day: "2026-11-06", device: "HP", state: { jn, ...extra }, ...extra }) }));
-  assert.equal((await put(bcp, 1000, "Reguler BCP")).status, 200);
+  const put = (cookie: string, site: string, at: number, jn: string, extra: object = {}) =>
+    draftPut(req("/api/draft", { method: "PUT", cookie, headers: { "x-site": site }, body: JSON.stringify({ at, day: "2026-11-06", device: "HP", state: { jn, ...extra }, ...extra }) }));
+  assert.equal((await put(bcp, "bcp", 1000, "Reguler BCP")).status, 200);
   // DPS menulis dengan waktu lebih baru dan mencoba menyelipkan site lain di isi permintaan.
-  assert.equal((await put(dps, 2000, "BBQ DPS", { site: "bcp" })).status, 200);
-  const readBcp = await (await draftGet(req("/api/draft", { cookie: bcp }))).json();
-  const readDps = await (await draftGet(req("/api/draft", { cookie: dps }))).json();
+  assert.equal((await put(dps, "dps", 2000, "BBQ DPS", { site: "bcp" })).status, 200);
+  const readBcp = await (await draftGet(req("/api/draft", { cookie: bcp, headers: { "x-site": "bcp" } }))).json();
+  const readDps = await (await draftGet(req("/api/draft", { cookie: dps, headers: { "x-site": "dps" } }))).json();
   assert.equal(readBcp.draft.state.jn, "Reguler BCP");
   assert.equal(readDps.draft.state.jn, "BBQ DPS");
 });
@@ -95,7 +95,7 @@ test("tab lama yang masih membuka BCP tidak bisa menulis ke DPS setelah cookie b
   assert.equal(r.status, 409);
   assert.equal((await r.json()).error, "site");
   assert.equal((await draftGet(req("/api/draft", { cookie: dps, headers: { "x-site": "bcp" } }))).status, 409);
-  assert.equal((await (await draftGet(req("/api/draft", { cookie: dps }))).json()).draft, null);
+  assert.equal((await (await draftGet(req("/api/draft", { cookie: dps, headers: { "x-site": "dps" } }))).json()).draft, null);
   assert.equal((await draftPut(req("/api/draft", { method: "PUT", cookie: dps, body, headers: { "x-site": "dps" } }))).status, 200);
 });
 
@@ -118,6 +118,42 @@ test("batas percobaan PIN per IP: percobaan ke-11 ditolak (429)", async () => {
   let last = 0;
   for (let i = 0; i < 11; i++) last = (await authPost(req("/api/auth", { method: "POST", ip: "10.9.9.9", body: JSON.stringify({ site: "dps", pin: "0" }) }))).status;
   assert.equal(last, 429);
+});
+
+test("batas PIN tidak bisa dilewati dengan permintaan bersamaan (review #1)", async () => {
+  const tries = Array.from({ length: 30 }, () =>
+    authPost(req("/api/auth", { method: "POST", ip: "10.7.7.7", body: JSON.stringify({ site: "dps", pin: "0" }) })));
+  const codes = (await Promise.all(tries)).map((r) => r.status);
+  assert.equal(codes.filter((c) => c === 401).length, 10);
+  assert.equal(codes.filter((c) => c === 429).length, 20);
+});
+
+test("permintaan draf tanpa X-Site (klien V1) dianggap BCP: tidak bisa menulis ke DPS (review #2)", async () => {
+  const dps = (await login({ site: "dps", pin: "2222" })).cookie;
+  const body = JSON.stringify({ at: 7000, day: "2026-11-06", device: "HP", state: { jn: "isi klien V1" } });
+  assert.equal((await draftPut(req("/api/draft", { method: "PUT", cookie: dps, body }))).status, 409);
+  assert.equal((await draftGet(req("/api/draft", { cookie: dps }))).status, 409);
+  const bcp = (await login({ site: "bcp", pin: "1111" })).cookie;
+  assert.equal((await draftPut(req("/api/draft", { method: "PUT", cookie: bcp, body }))).status, 200);
+});
+
+test("konfigurasi site rusak: pesan umum ke pengguna, nama site tidak bocor (review #5)", async () => {
+  process.env.SITE_CUSTOM = '[{"nama":"Tambang Rahasia","pin":"1"},{"nama":"Site tambang rahasia","pin":"2"}]';
+  const r = await authGet(req("/api/auth"));
+  assert.equal(r.status, 500);
+  assert.ok(!(await r.text()).toLowerCase().includes("rahasia"));
+});
+
+test("produksi tanpa AUTH_SECRET: gagal tertutup di route (500, tidak ada cookie)", async () => {
+  const env = process.env as Record<string, string | undefined>;
+  const prev = env.NODE_ENV;
+  delete env.AUTH_SECRET; delete env.MOCK_BACKEND; env.NODE_ENV = "production";
+  try {
+    const r = await authPost(req("/api/auth", { method: "POST", body: JSON.stringify({ site: "bcp", pin: "1111" }) }));
+    assert.equal(r.status, 500);
+    assert.equal(r.headers.get("set-cookie"), null);
+    assert.equal((await draftGet(req("/api/draft", { cookie: "v2.bcp.x.1.y" }))).status, 500);
+  } finally { env.NODE_ENV = prev; }
 });
 
 test("login yang berhasil tidak dihitung: satu Wi-Fi site (satu IP) bisa dipakai banyak orang", async () => {

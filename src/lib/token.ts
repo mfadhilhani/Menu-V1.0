@@ -1,8 +1,9 @@
 // Token login (isi cookie). Tidak mengimpor Next.js supaya bisa diuji langsung.
 // Format V2: v2.<siteId>.<versiKunci>.<kedaluwarsa>.<tanda tangan>
 // - versiKunci diturunkan dari PIN site: mengganti PIN site mencabut semua token site itu (site lain tidak terpengaruh).
-// - Token V1 (<kedaluwarsa>.<tanda tangan>) dari versi sebelumnya tetap diterima sebagai BCP sampai kedaluwarsa,
-//   supaya pengguna lama tidak harus login ulang saat pembaruan. Untuk mencabutnya, ganti AUTH_SECRET.
+// - Token V1 (<kedaluwarsa>.<tanda tangan>) dari versi sebelumnya tetap diterima sebagai BCP, supaya pengguna lama
+//   tidak harus login ulang saat pembaruan, TAPI hanya selama PIN BCP masih sama dengan APP_PIN lama (opsi legacyPin).
+//   Mengganti PIN BCP (lewat SITE_PINS) atau mengosongkan APP_PIN otomatis mencabut semua token V1.
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const COOKIE = "tf_auth";
@@ -36,7 +37,9 @@ export function makeToken(secret: string, siteId: string, pin: string, days = TO
 
 export type TokenInfo = { siteId: string; legacy: boolean };
 // pinOf: PIN site yang sedang berlaku (undefined = site tidak aktif).
-export function readToken(secret: string, tok: string | undefined, pinOf: (id: string) => string | undefined, now = Date.now()): TokenInfo | null {
+// legacyPin: PIN tempat token V1 diterbitkan (APP_PIN). Token V1 hanya berlaku kalau PIN BCP sekarang sama dengannya.
+export function readToken(secret: string, tok: string | undefined, pinOf: (id: string) => string | undefined, opts: { legacyPin?: string; now?: number } = {}): TokenInfo | null {
+  const now = opts.now ?? Date.now();
   if (!tok) return null;
   const p = tok.split(".");
   if (p.length === 5 && p[0] === "v2") {
@@ -50,7 +53,8 @@ export function readToken(secret: string, tok: string | undefined, pinOf: (id: s
   if (p.length === 2) {
     const exp = Number(p[0]);
     if (!Number.isFinite(exp) || exp <= now || !same(p[1], hmac(secret, String(exp)))) return null;
-    return pinOf("bcp") ? { siteId: "bcp", legacy: true } : null;
+    const bcp = pinOf("bcp");
+    return bcp && opts.legacyPin && same(bcp, opts.legacyPin) ? { siteId: "bcp", legacy: true } : null;
   }
   return null;
 }

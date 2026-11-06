@@ -24,6 +24,14 @@ test("slug: huruf kecil, tanda hubung, maks. 40 karakter", () => {
   assert.equal(slug("x".repeat(60)).length, 40);
 });
 
+test("slug hanya ASCII, aman untuk header HTTP dan nama tab (review #4)", () => {
+  assert.equal(slug("Tambang Ōmura"), "tambang-omura");
+  assert.equal(slug("Café Señor"), "cafe-senor");
+  const id = siteConfig({ SITE_CUSTOM: '[{"nama":"Site 東京","pin":"1"}]' }).custom[0].id;
+  assert.match(id, /^c-[a-z0-9-]+$/);
+  assert.doesNotThrow(() => new Headers({ "X-Site": id }));
+});
+
 test("siteConfig: SITE_PINS per site, APP_PIN lama dipakai untuk BCP", () => {
   const a = siteConfig({ APP_PIN: "1111" });
   assert.equal(pinFor(a, "bcp"), "1111");

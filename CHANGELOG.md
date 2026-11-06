@@ -26,6 +26,15 @@ Format: tanggal, tahap, lalu perubahan. Versi sebelum V2.0 dicatat di README (Pe
 - B9: "Site Site …" di laporan dan sampul video untuk nama berawalan "Site".
 - B10: "Site -" untuk site custom tanpa nama.
 
+**Diperbaiki dari review kode independen**
+- Batas PIN bisa dilewati dengan banyak tebakan yang dikirim bersamaan (batas dicek sebelum isi permintaan dibaca). Sekarang dicek setelahnya.
+- Permintaan draf tanpa `X-Site` (tab versi lama) diterima untuk site mana pun. Sekarang dianggap BCP.
+- Token V1 tetap berlaku setelah PIN BCP diganti. Sekarang hanya berlaku selama PIN BCP sama dengan `APP_PIN`.
+- Id site custom bisa memuat huruf non-ASCII yang membuat header `X-Site` gagal dikirim (sinkron macet). Id sekarang ASCII saja.
+- Detail kesalahan konfigurasi (bisa memuat nama site custom) terlihat oleh orang yang belum login. Sekarang hanya di log server.
+- Draf V1 dengan "Lainnya…" + nama ketikan berubah diam-diam menjadi "Site BCP". Sekarang ada pemberitahuan.
+- Peta batas PIN bisa tumbuh tanpa batas; dua perangkat membuka site baru bersamaan bisa gagal membuat tab draf; layar login mereset pilihan site saat kembali ke tab.
+
 **Kompatibilitas**
 - Pengguna BCP: `APP_PIN` dan cookie lama tetap berlaku; tab `draf`, kunci `tfm2_draft`, dan foto lama tetap dipakai; teks laporan BCP tidak berubah (dikunci uji karakterisasi).
 - Versi lama aplikasi yang masih terbuka di perangkat BCP tetap bisa menyimpan ke tab `draf`.

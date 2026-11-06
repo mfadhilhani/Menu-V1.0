@@ -33,5 +33,10 @@ Setiap keputusan: konteks, keputusan, akibat. Keputusan D1–D8 berasal dari dok
 
 ## ADR-007 — Batas PIN hanya menghitung percobaan gagal
 **Konteks.** V1 menghitung semua percobaan login per IP (10 per 10 menit). Semua HP di satu Wi-Fi site biasanya keluar lewat satu IP publik; saat rilis semua orang login ulang.
-**Keputusan.** Hanya PIN salah yang dihitung. IP dari `X-Real-IP` (diisi proxy), lalu entri terakhir `X-Forwarded-For`.
-**Akibat.** Pengguna yang PIN-nya benar tidak terkunci. Penebakan PIN tetap dibatasi 10 kali per 10 menit per IP. Batas masih per instance server (di Vercel bisa beberapa instance).
+**Keputusan.** Hanya PIN salah yang dihitung. Batas dicek setelah isi permintaan dibaca, dan dari cek sampai pencatatan gagal tidak ada `await`, sehingga tebakan yang dikirim bersamaan tetap terhitung satu per satu. IP dari `X-Real-IP` (diisi proxy), lalu entri terakhir `X-Forwarded-For`.
+**Akibat.** Pengguna yang PIN-nya benar tidak terkunci. Penebakan PIN dibatasi 10 kali per 10 menit per IP. Batas masih per instance server (di Vercel bisa beberapa instance), jadi PIN tetap sebaiknya minimal 6 digit. Di VPS, aplikasi wajib di belakang Nginx yang menimpa `X-Real-IP`.
+
+## ADR-008 — Token V1 hanya berlaku selama PIN BCP belum diganti
+**Konteks.** Token V1 (`exp.tanda`) tidak membawa versi kunci, jadi mengganti PIN BCP tidak mencabutnya.
+**Keputusan.** Token V1 diterima sebagai BCP hanya kalau PIN BCP sekarang sama dengan `APP_PIN` (PIN tempat token V1 diterbitkan).
+**Akibat.** Rilis V2.0 tidak memaksa pengguna BCP login ulang. Mengganti PIN BCP di `SITE_PINS` atau mengosongkan `APP_PIN` mencabut semua token V1.

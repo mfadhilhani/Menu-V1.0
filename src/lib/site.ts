@@ -23,10 +23,17 @@ export const STANDARD: readonly Site[] = Object.freeze([
 ]);
 export const DEFAULT_SITE_ID = "bcp";
 
+// Hanya huruf ASCII, angka, dan tanda hubung: id dipakai sebagai nilai header X-Site, kunci penyimpanan, dan nama tab
+// Sheet. Huruf beraksen dibuang aksennya ("Ōmura" -> "omura").
 export const slug = (s: string) =>
-  s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "");
+  s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "");
 const stripSite = (s: string) => s.trim().replace(/^site\b[\s\-_]*/i, "");
-const customId = (nama: string) => "c-" + slug(stripSite(nama));
+// Nama tanpa huruf Latin sama sekali (mis. aksara lain) tetap dapat id stabil dari hash namanya.
+const fnv = (s: string) => { let h = 0x811c9dc5; for (const c of s) { h ^= c.codePointAt(0) as number; h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
+const customId = (nama: string) => {
+  const base = stripSite(nama).normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+  return base ? "c-" + (slug(base) || "x" + fnv(base)) : "c-";
+};
 
 // "BCP" -> "Site BCP"; "Site Tambang ABC" tetap (tidak jadi "Site Site Tambang ABC").
 export function siteLabel(nama: string, kata = "Site") {
