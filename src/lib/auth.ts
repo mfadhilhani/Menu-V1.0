@@ -1,43 +1,60 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { anyPin, DEFAULT_SITE_ID, siteById, siteConfig, SiteConfigError, STANDARD, type Site, type SiteConfig } from "./site";
+import { AuthConfigError, authSecret, COOKIE, readToken } from "./token";
 
-export const COOKIE = "tf_auth";
-const secret = () => process.env.AUTH_SECRET || process.env.APP_PIN || "dev-secret";
+export { COOKIE } from "./token";
 export const isMock = () => process.env.MOCK_BACKEND === "1";
 
-const sign = (exp: number) => createHmac("sha256", secret()).update(String(exp)).digest("hex");
-export function makeToken(days = 30) {
-  const exp = Date.now() + days * 86400000;
-  return `${exp}.${sign(exp)}`;
+type Ctx = { cfg: SiteConfig; secret: string };
+type Fail = { error: NextResponse };
+const serverError = (msg: string) => NextResponse.json({ error: msg }, { status: 500 });
+
+// Konfigurasi dibaca ulang tiap permintaan (murah), jadi perubahan env langsung berlaku setelah restart/redeploy.
+export function authContext(): Ctx | Fail {
+  try {
+    return { cfg: siteConfig(), secret: authSecret() };
+  } catch (e) {
+    if (e instanceof SiteConfigError || e instanceof AuthConfigError) return { error: serverError(e.message) };
+    throw e;
+  }
 }
-function same(a: string, b: string) {
-  const x = Buffer.from(a), y = Buffer.from(b);
-  return x.length === y.length && timingSafeEqual(x, y);
+// Mode coba lokal tanpa PIN sama sekali: terbuka, dianggap BCP.
+export const openMock = (cfg: SiteConfig) => isMock() && !anyPin(cfg);
+
+// Site milik permintaan ini, diambil dari cookie yang ditandatangani server (bukan dari isi permintaan).
+export function session(req: NextRequest): { site: Site } | Fail {
+  const c = authContext();
+  if ("error" in c) return c;
+  if (openMock(c.cfg)) return { site: STANDARD.find((s) => s.id === DEFAULT_SITE_ID) as Site };
+  if (!anyPin(c.cfg)) return { error: serverError("PIN belum diisi di server. Isi SITE_PINS (atau APP_PIN untuk BCP) dan AUTH_SECRET di .env.local atau Environment Variables, lalu restart/redeploy.") };
+  const info = readToken(c.secret, req.cookies.get(COOKIE)?.value, (id) => c.cfg.pins.get(id));
+  const site = info && siteById(c.cfg, info.siteId);
+  return site ? { site } : { error: NextResponse.json({ error: "login" }, { status: 401 }) };
 }
-export function tokenOk(tok?: string) {
-  if (!tok) return false;
-  const [e, s] = tok.split(".");
-  const exp = Number(e);
-  return !!s && Number.isFinite(exp) && exp > Date.now() && same(s, sign(exp));
-}
-export function pinOk(pin: string) {
-  const p = process.env.APP_PIN || "";
-  return !!p && same(pin, p);
-}
-// Dipakai di setiap route yang menyentuh Sheet atau AI.
+// Untuk route yang tidak bergantung site (katalog makanan bersama, video): cukup sudah login.
 export function guard(req: NextRequest): NextResponse | null {
-  if (isMock() && !process.env.APP_PIN) return null; // mode coba lokal
-  if (!process.env.APP_PIN) return NextResponse.json({ error: "APP_PIN belum diisi di server. Isi APP_PIN (dan AUTH_SECRET) di .env.local atau di Environment Variables Vercel, lalu restart/redeploy." }, { status: 500 });
-  return tokenOk(req.cookies.get(COOKIE)?.value) ? null : NextResponse.json({ error: "login" }, { status: 401 });
+  const s = session(req);
+  return "error" in s ? s.error : null;
+}
+
+// IP klien untuk batas percobaan PIN. X-Real-IP diisi proxy (Nginx/Vercel) dan menimpa kiriman klien;
+// di X-Forwarded-For entri TERAKHIR yang ditambahkan proxy terdekat (entri pertama bisa dipalsukan klien).
+export function clientIp(req: NextRequest) {
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
+  const xff = (req.headers.get("x-forwarded-for") || "").split(",").map((s) => s.trim()).filter(Boolean);
+  return xff.at(-1) || "local";
 }
 
 // Pembatas sederhana (per instance server): percobaan PIN dan panggilan AI per hari.
+const WINDOW = 600000, MAX_TRIES = 10;
 const tries = new Map<string, { n: number; t: number }>();
 export function pinTries(ip: string) {
   const now = Date.now(), r = tries.get(ip);
-  if (!r || now - r.t > 600000) { tries.set(ip, { n: 1, t: now }); return true; }
+  if (tries.size > 5000) for (const [k, v] of tries) if (now - v.t > WINDOW) tries.delete(k); // jangan tumbuh tanpa batas
+  if (!r || now - r.t > WINDOW) { tries.set(ip, { n: 1, t: now }); return true; }
   r.n++;
-  return r.n <= 10;
+  return r.n <= MAX_TRIES;
 }
 let ai = { day: "", n: 0 };
 export function aiAllowed() {

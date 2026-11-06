@@ -1,4 +1,5 @@
 // Penyusun teks laporan (port dari versi HTML).
+import { siteLabel } from "./site";
 import { dateParts, fmt, icon, num, pad, toTitle } from "./text";
 
 export type TF = { id: string; n: string; k: string; sid?: string };
@@ -25,7 +26,9 @@ export const cur = (s: State): MealData => s.md[s.meal as MealKey] ?? s.md.Break
 export const LIMIT = 1800;
 const EXC = /sambal|sambel|kerupuk|krupuk/i;
 
-export const siteName = (s: State) => (s.site === "__x" ? s.sxi.trim() || "-" : s.site);
+// Nama site aktif. Sejak V2.0 App mengisi `site` dari login (lihat src/lib/site.ts); "__x" + `sxi` hanya ada di draf lama.
+export const siteName = (s: State) => (s.site === "__x" ? s.sxi : s.site).trim();
+const menuTitle = (s: State) => { const l = siteLabel(siteName(s)); return `Menu ${s.meal}${l ? ` ${l}` : ""}`; };
 // Baris Live Cooking: hanya untuk Dinner (kosong kalau bukan Dinner, tidak dicentang, atau belum diisi).
 const liveText = (s: State) => (s.meal === "Dinner" && s.live && s.liveMenu.trim() ? toTitle(s.liveMenu) : "");
 // Baris "Pukul" (hanya kalau dicentang dan jamnya valid), format "10.34 WITA".
@@ -38,7 +41,7 @@ function lines(arr: TF[], always: boolean) {
 }
 export function testFoodReport(s: State) {
   const live = liveText(s);
-  let t = `*Test Food Menu ${s.jn.trim()}*\n${live ? `*Live Cooking : ${live}*\n` : ""}*${dateText(s)}*${pukulText(s) ? `\n*Pukul : ${pukulText(s)}*` : ""}\n\n*Menu ${s.meal} Site ${siteName(s)}*\n${lines(cur(s).menu, true)}`;
+  let t = `*Test Food Menu ${s.jn.trim()}*\n${live ? `*Live Cooking : ${live}*\n` : ""}*${dateText(s)}*${pukulText(s) ? `\n*Pukul : ${pukulText(s)}*` : ""}\n\n*${menuTitle(s)}*\n${lines(cur(s).menu, true)}`;
   if (s.meal === "Dinner") {
     ([["Snack", cur(s).snack], ["Buah", cur(s).buah]] as [string, TF[]][]).forEach(([h, arr]) => {
       const l = lines(arr, false);
@@ -70,5 +73,6 @@ export function kaloriReport(s: State) {
 }
 export function warnaMessage(s: State) {
   const p = dateParts(s.dt);
-  return `Kode warna makanan ${s.meal} site ${siteName(s)}\n${p.hari}, ${pad(p.d)} ${p.m} ${p.y}`;
+  const l = siteLabel(siteName(s), "site");
+  return `Kode warna makanan ${s.meal}${l ? ` ${l}` : ""}\n${p.hari}, ${pad(p.d)} ${p.m} ${p.y}`;
 }

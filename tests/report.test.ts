@@ -60,3 +60,17 @@ test("laporan kalori: aturan 1.800 kkal tidak menghitung sambal dan kerupuk", ()
 test("pesan kode warna", () => {
   assert.equal(warnaMessage(baseState()), "Kode warna makanan Breakfast site BCP\nJum’at, 06 November 2026");
 });
+
+test("nama site custom berawalan 'Site' tidak ditulis ganda (B9)", () => {
+  const s = baseState({ site: "Site Tambang ABC" });
+  assert.ok(testFoodReport(s).includes("\n*Menu Breakfast Site Tambang ABC*\n"));
+  assert.equal(warnaMessage(s).split("\n")[0], "Kode warna makanan Breakfast Site Tambang ABC");
+  const k = baseState({ site: "Kintap Project" });
+  assert.ok(testFoodReport(k).includes("\n*Menu Breakfast Site Kintap Project*\n"));
+});
+
+test("draf lama dengan site custom kosong tidak menulis 'Site -' (B10)", () => {
+  const s = baseState({ site: "__x", sxi: " " });
+  assert.ok(testFoodReport(s).includes("\n*Menu Breakfast*\n"));
+  assert.ok(!testFoodReport(s).includes("Site -"));
+});
