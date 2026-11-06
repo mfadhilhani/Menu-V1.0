@@ -1,5 +1,6 @@
 // Google Sheets lewat REST (akun layanan). Kolom: key | nama | deskripsi | kkal_100g | sumber | status | diubah | ikon
-import { JWT } from "google-auth-library";
+// google-auth-library dimuat saat pertama kali dipakai, jadi mode coba (MOCK_BACKEND) dan uji tidak membutuhkannya.
+import type { JWT } from "google-auth-library";
 
 export type Row = { row: number; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string; ikon: string };
 export const HEADER = ["key", "nama", "deskripsi", "kkal_100g", "sumber", "status", "diubah", "ikon"];
@@ -8,17 +9,18 @@ const ID = () => process.env.SHEET_ID || "";
 const TAB = () => process.env.SHEET_TAB || "makanan";
 let jwt: JWT | null = null;
 
-function client() {
+async function client() {
   if (!jwt) {
     const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
     const key = (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
     if (!ID() || !email || !key) throw new Error("SHEET_ID / kredensial Google belum diisi");
+    const { JWT } = await import("google-auth-library");
     jwt = new JWT({ email, key, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
   }
   return jwt;
 }
 async function api(path: string, init: RequestInit = {}) {
-  const { token } = await client().getAccessToken();
+  const { token } = await (await client()).getAccessToken();
   const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${ID()}${path}`, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

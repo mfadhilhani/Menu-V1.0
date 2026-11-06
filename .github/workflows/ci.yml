@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Mode coba: tanpa kredensial Google/Gemini. Uji tidak pernah menyentuh Sheet produksi.
+      MOCK_BACKEND: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Pasang ffmpeg (uji render video)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # npm ci sengaja dipakai (bukan npm install): gagal kalau package-lock.json tidak sinkron dengan package.json.
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run typecheck
