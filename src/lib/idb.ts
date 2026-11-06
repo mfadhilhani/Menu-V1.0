@@ -1,8 +1,16 @@
 // Penyimpanan foto di browser (IndexedDB) supaya tidak hilang saat reload.
 // Foto bersifat sementara: saat dibuka di hari kerja baru (lewat pukul 03.00), semua foto hari sebelumnya dihapus.
+// Foto dipisah per site: kunci BCP tanpa awalan (sama dengan versi lama, jadi foto yang ada tetap terbaca),
+// site lain memakai awalan "s:<id site>:". Satu HP yang dipakai dua site tidak mencampur fotonya.
 import { workDay } from "./text";
 
 const DAY_KEY = "__hari";
+let scope = "";
+export const scopePrefix = (siteId: string) => (siteId === "bcp" ? "" : `s:${siteId}:`);
+export function setIdbScope(siteId: string) { scope = scopePrefix(siteId); }
+// Kunci milik site aktif? (dipakai saat "Mulai baru" supaya foto site lain di perangkat ini tidak ikut terhapus)
+export const inScope = (key: string, prefix: string) => key !== DAY_KEY && (prefix ? key.startsWith(prefix) : !key.startsWith("s:"));
+
 let dbp: Promise<IDBDatabase> | null = null;
 function sweep(d: IDBDatabase) {
   return new Promise<void>((res) => {
@@ -11,7 +19,7 @@ function sweep(d: IDBDatabase) {
       const g = st.get(DAY_KEY);
       g.onsuccess = () => {
         const v = g.result as string | undefined;
-        if (v && v < today) st.clear(); // foto dari hari kerja sebelumnya
+        if (v && v < today) st.clear(); // foto dari hari kerja sebelumnya (semua site)
         st.put(today, DAY_KEY);
       };
       t.oncomplete = () => res();
@@ -39,7 +47,11 @@ async function op<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
     });
   } catch { return undefined; }
 }
-export const idbGet = <T,>(k: string) => op<T>("readonly", (s) => s.get(k) as IDBRequest<T>);
-export const idbSet = (k: string, v: unknown) => op("readwrite", (s) => { s.put(v, k); });
-export const idbDel = (k: string) => op("readwrite", (s) => { s.delete(k); });
-export const idbClear = () => op("readwrite", (s) => { s.clear(); });
+export const idbGet = <T,>(k: string) => op<T>("readonly", (s) => s.get(scope + k) as IDBRequest<T>);
+export const idbSet = (k: string, v: unknown) => op("readwrite", (s) => { s.put(v, scope + k); });
+export const idbDel = (k: string) => op("readwrite", (s) => { s.delete(scope + k); });
+// Hapus semua foto site aktif di perangkat ini.
+export const idbClear = () => op("readwrite", (s) => {
+  const prefix = scope, r = s.getAllKeys();
+  r.onsuccess = () => (r.result as IDBValidKey[]).forEach((k) => { if (typeof k === "string" && inScope(k, prefix)) s.delete(k); });
+});

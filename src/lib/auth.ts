@@ -46,15 +46,21 @@ export function clientIp(req: NextRequest) {
   return xff.at(-1) || "local";
 }
 
-// Pembatas sederhana (per instance server): percobaan PIN dan panggilan AI per hari.
-const WINDOW = 600000, MAX_TRIES = 10;
-const tries = new Map<string, { n: number; t: number }>();
-export function pinTries(ip: string) {
-  const now = Date.now(), r = tries.get(ip);
-  if (tries.size > 5000) for (const [k, v] of tries) if (now - v.t > WINDOW) tries.delete(k); // jangan tumbuh tanpa batas
-  if (!r || now - r.t > WINDOW) { tries.set(ip, { n: 1, t: now }); return true; }
-  r.n++;
-  return r.n <= MAX_TRIES;
+// Pembatas sederhana (per instance server): PIN SALAH per IP dan panggilan AI per hari.
+// Hanya percobaan gagal yang dihitung: semua HP di satu Wi-Fi site biasanya keluar lewat satu IP,
+// jadi menghitung login yang berhasil akan mengunci orang yang PIN-nya benar.
+const WINDOW = 600000, MAX_FAILS = 10;
+const fails = new Map<string, { n: number; t: number }>();
+const live = (ip: string, now: number) => { const r = fails.get(ip); return r && now - r.t <= WINDOW ? r : null; };
+// false = IP ini sudah 10 kali salah dalam 10 menit terakhir.
+export function pinAllowed(ip: string) {
+  return (live(ip, Date.now())?.n ?? 0) < MAX_FAILS;
+}
+export function pinFailed(ip: string) {
+  const now = Date.now(), r = live(ip, now);
+  if (fails.size > 5000) for (const [k, v] of fails) if (now - v.t > WINDOW) fails.delete(k); // jangan tumbuh tanpa batas
+  if (r) r.n++;
+  else fails.set(ip, { n: 1, t: now });
 }
 let ai = { day: "", n: 0 };
 export function aiAllowed() {

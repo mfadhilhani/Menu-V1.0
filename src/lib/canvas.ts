@@ -202,7 +202,7 @@ export function tvFrame(card: HTMLCanvasElement) {
   X.drawImage(card, x, y, w, h);
   return c;
 }
-// Sampul video: template "Menu" + jenis menu (tulisan tangan) + "SITE <nama>" dari Info umum.
+// Sampul video: template "Menu" + jenis menu (tulisan tangan) + label site (mis. "Site BCP") dari src/lib/site.ts.
 // Penutup: gambar "Selamat Menikmati" apa adanya. Ganti file di public/assets untuk mengubah desain.
 const SCRIPT = '"Ms Madi", "Snell Roundhand", "Brush Script MT", "Segoe Script", "Apple Chancery", cursive';
 const HEAVY = '"Archivo Black", "Arial Black", "Helvetica Neue", Arial, sans-serif';
@@ -226,7 +226,7 @@ export async function tvCover(jenis: string, site: string) {
     fit(X, j, (fs) => `400 ${fs}px ${SCRIPT}`, 300, 1560, 110, 10);
     X.fillText(j, TV_W / 2, 640);
   }
-  const st = ("Site " + site.trim()).toUpperCase();
+  const st = site.trim().toUpperCase(); // sudah berupa label lengkap ("Site BCP"), jadi tidak ditambah "Site" lagi
   X.fillStyle = "#40421A";
   fit(X, st, (fs) => `400 ${fs}px ${HEAVY}`, 150, 1700, 60, 6);
   X.fillText(st, TV_W / 2, 955);

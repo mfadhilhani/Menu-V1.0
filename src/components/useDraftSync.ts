@@ -26,12 +26,23 @@ type Opts = {
   setS: (fn: (p: State) => State) => void;
   loaded: boolean;
   authed: boolean | null;
+  siteId: string;                // site yang sedang dibuka halaman ini (dikirim sebagai X-Site)
   day: { current: string };      // hari kerja draf ini (diatur saat draf dimuat)
   at: { current: number };       // waktu perubahan terakhir isian di perangkat ini (0 = belum pernah diubah)
   onRemote?: (device: string) => void;
 };
 
-export function useDraftSync({ s, setS, loaded, authed, day, at, onRemote }: Opts) {
+// Server menjawab 409 "site" kalau cookie di browser ini sudah milik site lain (login di tab lain):
+// isian halaman ini tidak dikirim, halaman dimuat ulang mengikuti site baru.
+const siteChanged = async (r: Response) => {
+  if (r.status !== 409) return false;
+  const j = await r.clone().json().catch(() => ({}));
+  if (j.error !== "site") return false;
+  location.reload();
+  return true;
+};
+
+export function useDraftSync({ s, setS, loaded, authed, siteId, day, at, onRemote }: Opts) {
   const [status, setStatus] = useState<SyncStatus>({ state: "wait", at: 0, device: "" });
   const last = useRef("");        // JSON isian terakhir yang sama dengan server
   const ready = useRef(false);
@@ -63,9 +74,10 @@ export function useDraftSync({ s, setS, loaded, authed, day, at, onRemote }: Opt
     const sentAt = at.current;
     try {
       const r = await fetch("/api/draft", {
-        method: "PUT", keepalive, headers: { "Content-Type": "application/json" },
+        method: "PUT", keepalive, headers: { "Content-Type": "application/json", "X-Site": siteId },
         body: JSON.stringify({ at: sentAt, day: day.current, device: deviceName(), state: st }),
       });
+      if (await siteChanged(r)) return;
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       if (j.ok) { last.current = json; setStatus({ state: "ok", at: sentAt, device: deviceName() }); }
@@ -77,7 +89,7 @@ export function useDraftSync({ s, setS, loaded, authed, day, at, onRemote }: Opt
     } finally {
       busy.current = false;
     }
-  }, [apply, at, day]);
+  }, [apply, at, day, siteId]);
 
   const pull = useCallback(async () => {
     if (busy.current) return;
@@ -85,7 +97,8 @@ export function useDraftSync({ s, setS, loaded, authed, day, at, onRemote }: Opt
     busy.current = true;
     let r: Remote | null = null, ok = false;
     try {
-      const res = await fetch(`/api/draft?since=${at.current}`, { cache: "no-store" });
+      const res = await fetch(`/api/draft?since=${at.current}`, { cache: "no-store", headers: { "X-Site": siteId } });
+      if (await siteChanged(res)) return;
       const j = await res.json().catch(() => ({}));
       if (res.ok) { ok = true; r = (j.draft as Remote | null) ?? null; }
     } catch { /* offline */ }
@@ -95,7 +108,7 @@ export function useDraftSync({ s, setS, loaded, authed, day, at, onRemote }: Opt
     // Draf server bertanggal lebih baru tapi jam perangkat ini belum lewat 03.00: abaikan (jam perangkat berbeda).
     if (JSON.stringify(synced(sRef.current)) !== last.current && at.current > 0) { await push(); return; }
     setStatus((x) => ({ state: "ok", at: x.at || r?.at || 0, device: x.device || r?.device || "" }));
-  }, [apply, push, at, day]);
+  }, [apply, push, at, day, siteId]);
 
   // Ambil draf server sekali saat dibuka, sebelum mengirim apa pun (supaya isian perangkat lain tidak tertimpa).
   useEffect(() => {

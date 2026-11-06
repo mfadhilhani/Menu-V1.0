@@ -9,10 +9,19 @@ const fail = (e: unknown) => {
   return NextResponse.json({ error: "Gagal menyimpan atau membaca draf di server" }, { status: 500 });
 };
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+// Cookie login dipakai bersama semua tab di browser. Kalau satu tab login ke site lain, tab lama yang masih
+// membuka site sebelumnya mengirim X-Site lama: ditolak 409 supaya isiannya tidak masuk ke draf site baru.
+function siteOf(req: NextRequest) {
+  const s = session(req);
+  if ("error" in s) return s;
+  const want = req.headers.get("x-site");
+  if (want && want !== s.site.id) return { error: NextResponse.json({ error: "site", site: s.site.id }, { status: 409 }) };
+  return s;
+}
 
 // GET ?since=<waktu>: isi draf hanya dikirim kalau lebih baru dari yang sudah dimiliki perangkat (hemat data).
 export async function GET(req: NextRequest) {
-  const s = session(req);
+  const s = siteOf(req);
   if ("error" in s) return s.error;
   try {
     const since = Number(req.nextUrl.searchParams.get("since") || 0);
@@ -23,7 +32,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const s = session(req);
+  const s = siteOf(req);
   if ("error" in s) return s.error;
   try {
     const raw = await req.text();

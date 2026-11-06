@@ -4,6 +4,7 @@ import { blobOf, drawKolase, drawPoster, Meal, SlotView, tvFrames } from "@/lib/
 import { useSlotPhotos } from "@/lib/photos";
 import { cur, kaloriReport, siteName, Slot, State, Sync, warnaMessage } from "@/lib/report";
 import { saveBlob, shareFiles } from "@/lib/share";
+import { siteLabel } from "@/lib/site";
 import { norm, num, toTitle } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import NameInput from "./NameInput";
@@ -15,7 +16,10 @@ type Props = { s: State; setSlots: SetSlots; sync: Sync; toast: (m: string) => v
 export default function PosterSection({ s, setSlots, sync, toast }: Props) {
   const meal = s.meal as Meal, dinner = meal === "Dinner";
   const slots = cur(s).slots, set = setSlots;
-  const { foods, patchFood, addManual } = useFoods();
+  const { foods, patchFood, addManual, site } = useFoods();
+  // Template gambar (poster, kartu, sampul, penutup) masih bertuliskan BCP dan berlogo DH. Versi untuk site lain
+  // menunggu file template bersih dari desainer (keputusan D3), jadi pengguna diberi tahu dengan jelas.
+  const bcpTemplate = !!site && site.id !== "bcp";
   const photos = useSlotPhotos(Object.values(s.md).flatMap((m) => m.slots).map((x) => x.id));
   const poster = useRef<HTMLCanvasElement>(null), kolase = useRef<HTMLCanvasElement>(null);
   const [hasKolase, setHasKolase] = useState(false);
@@ -42,7 +46,7 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
   const makeVideo = async () => {
     setVbusy("Menyiapkan kartu…");
     try {
-      const frames = await tvFrames(mkViews(), { jenis: s.jn, site: siteName(s) });
+      const frames = await tvFrames(mkViews(), { jenis: s.jn, site: siteLabel(siteName(s)) });
       if (!frames.length) { toast("Isi nama atau foto minimal satu menu"); return; }
       let blobs: Blob[] = [];
       for (const q of [0.9, 0.75, 0.6]) {           // jaga total kiriman di bawah ~4 MB (batas Vercel 4,5 MB)
@@ -99,6 +103,12 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
   return (
     <section>
       <h2>Poster menu {meal} ({slots.length} menu)</h2>
+      {bcpTemplate && (
+        <p className="warn" role="note">
+          Template poster, kartu kode warna, dan video untuk site {site?.nama} belum tersedia. Sementara gambar masih memakai template BCP
+          (tulisan &quot;BCP&quot; dan logo DH). Nama site di sampul video dan di teks laporan sudah mengikuti site {site?.nama}.
+        </p>
+      )}
       <SortableList items={slots} onChange={(n) => set(() => n)} className="slots">
         {(x, i, handle) => {
           const ph = photos.map[x.id];

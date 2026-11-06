@@ -4,8 +4,9 @@ import { fillMealPattern, initMD } from "@/lib/pattern";
 import { KR, MealData, MealKey, Slot, State, Sync, TF } from "@/lib/report";
 import { idbClear } from "@/lib/idb";
 import { JENIS } from "@/lib/options";
+import { STANDARD, type Site } from "@/lib/site";
 import ComboInput from "./ComboInput";
-import { mealByHour, norm, pad, todayStr, uid, workDay } from "@/lib/text";
+import { mealByHour, norm, pad, todayStr, workDay } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import KaloriTab from "./KaloriTab";
 import Login from "./Login";
@@ -13,20 +14,19 @@ import RiwayatTab from "./RiwayatTab";
 import TestFoodTab from "./TestFoodTab";
 import { useDraftSync } from "./useDraftSync";
 
-const KEY = "tfm2_draft";
-const mkTF = (n: number): TF[] => Array.from({ length: n }, () => ({ id: uid(), n: "", k: "Ok" }));
-const mkKR = (n: number): KR[] => Array.from({ length: n }, () => ({ id: uid(), n: "", kkal: "", gram: "100" }));
-const mkSlot = (n: number): Slot[] => Array.from({ length: n }, () => ({ id: uid(), n: "", kkal: "", desc: "" }));
-const init = (): State => ({
-  tab: "tf", pukul: false, jam: "", zona: "WITA", mealAuto: true, jn: "Reguler", live: false, liveMenu: "", dt: "", meal: "Breakfast", site: "BCP", sxi: "",
+// Draf lokal per site. BCP tetap memakai kunci lama supaya isian yang sudah ada di perangkat tidak hilang.
+const draftKey = (siteId: string) => (siteId === "bcp" ? "tfm2_draft" : `tfm2_draft:${siteId}`);
+// Nilai awal isian. Nama site, kode site laporan, dan camp mengikuti site yang sedang login.
+const init = (site: Site = STANDARD[0]): State => ({
+  tab: "tf", pukul: false, jam: "", zona: "WITA", mealAuto: true, jn: "Reguler", live: false, liveMenu: "", dt: "", meal: "Breakfast", site: site.nama, sxi: "",
   ks: "Makanan dalam kondisi layak untuk dikonsumsi",
-  ksite: "DH BCP", camp: "Camp Pelangi", rule: true,
+  ksite: site.laporan, camp: site.camp, rule: true,
   md: initMD(),
 });
 
 export default function App() {
-  const { authed, mock, loadError, reload, foods } = useFoods();
-  const [s, setS] = useState<State>(init);
+  const { authed, mock, openMode, loadError, reload, foods, site, logout } = useFoods();
+  const [s, setS] = useState<State>(() => init());
   const [loaded, setLoaded] = useState(false);
   const [msg, setMsg] = useState("");
   const [sure, setSure] = useState(false);
@@ -35,33 +35,40 @@ export default function App() {
   const at = useRef(0);            // waktu isian terakhir diubah (untuk sinkronisasi antar perangkat)
   const resetting = useRef(false);
 
-  // Muat draf terakhir. Draf dari hari kerja sebelumnya memulai ulang dari pola (menu kemarin tidak terbawa),
-  // tapi pengaturan seperti site, jenis menu, dan camp tetap dipakai.
+  // Muat draf terakhir site ini, setelah site aktif diketahui dari login.
+  // Draf dari hari kerja sebelumnya memulai ulang dari pola (menu kemarin tidak terbawa),
+  // tapi pengaturan seperti jenis menu dan camp tetap dipakai.
+  const siteId = site?.id;
   useEffect(() => {
+    if (!site || loaded) return;
+    const base = { ...init(site), dt: todayStr() };
     try {
-      const d = JSON.parse(localStorage.getItem(KEY) || "null");
+      const d = JSON.parse(localStorage.getItem(draftKey(site.id)) || "null");
       if (d && d.v === 1 && d.state) {
         const stale = !d.day || d.day < workDay();
         at.current = stale ? 0 : Number(d.at) || 0;
-        setS((p) => {
-          // Daftar lama (sebelum ada pola) dibuang.
-          const { menu, snack, buah, rows, pb, pd, ...rest } = d.state as Record<string, unknown>;
-          void menu; void snack; void buah; void rows; void pb; void pd;
-          const md = rest.md ? fillMealPattern(rest.md as State["md"]) : initMD();
-          return { ...p, ...rest, md, dt: !stale && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State;
-        });
+        // Daftar lama (sebelum ada pola) dibuang.
+        const { menu, snack, buah, rows, pb, pd, ...rest } = d.state as Record<string, unknown>;
+        void menu; void snack; void buah; void rows; void pb; void pd;
+        const md = rest.md ? fillMealPattern(rest.md as State["md"]) : initMD();
+        setS({ ...base, ...rest, md, site: site.nama, sxi: "", dt: !stale && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State);
         setLoaded(true);
         return;
       }
     } catch { /* abaikan draf rusak */ }
-    setS((p) => ({ ...p, dt: todayStr() }));
+    setS(base);
     setLoaded(true);
-  }, []);
+  }, [site, loaded]);
   useEffect(() => {
-    if (!loaded || resetting.current) return;
-    const t = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify({ v: 1, day: day.current, at: at.current, state: s })); } catch { /* penuh */ } }, 300);
+    if (!loaded || !siteId || resetting.current) return;
+    const t = setTimeout(() => { try { localStorage.setItem(draftKey(siteId), JSON.stringify({ v: 1, day: day.current, at: at.current, state: s })); } catch { /* penuh */ } }, 300);
     return () => clearTimeout(t);
-  }, [s, loaded]);
+  }, [s, loaded, siteId]);
+  // Nama site di isian selalu mengikuti login (juga setelah isian dari perangkat lain diterapkan).
+  useEffect(() => {
+    if (!loaded || !site || (s.site === site.nama && !s.sxi)) return;
+    setS((p) => ({ ...p, site: site.nama, sxi: "" }));
+  }, [loaded, site, s.site, s.sxi]);
 
   const up = useCallback((p: Partial<State>) => setS((x) => ({ ...x, ...p })), []);
   const setMD = useCallback((fn: (d: MealData, m: MealKey) => MealData) => setS((x) => { const m = x.meal as MealKey; return { ...x, md: { ...x.md, [m]: fn(x.md[m], m) } }; }), []);
@@ -97,7 +104,7 @@ export default function App() {
   const toast = useCallback((m: string) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(""), 2800); }, []);
   // Isian teks tersinkron antar perangkat (foto tidak ikut).
   const onRemote = useCallback((dev: string) => toast(`Isian diperbarui dari ${dev || "perangkat lain"}`), [toast]);
-  const { status: syncSt, syncNow } = useDraftSync({ s, setS, loaded, authed, day, at, onRemote });
+  const { status: syncSt, syncNow } = useDraftSync({ s, setS, loaded, authed, siteId: siteId || "", day, at, onRemote });
   const hm = (t: number) => { const d = new Date(t); return `${pad(d.getHours())}.${pad(d.getMinutes())}`; };
   const syncText =
     syncSt.state === "saving" ? "Menyimpan ke semua perangkat…"
@@ -143,12 +150,14 @@ export default function App() {
   const copy = useCallback(async (t: string) => { try { await navigator.clipboard.writeText(t); toast("Teks disalin"); } catch { toast("Gagal menyalin, salin manual"); } }, [toast]);
   const wa = useCallback((t: string) => { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); }, []);
 
-  // Mulai baru: isian kembali ke pola di semua perangkat (lewat sinkronisasi), foto di perangkat ini dihapus.
+  // Mulai baru: isian site ini kembali ke pola di semua perangkat site ini (lewat sinkronisasi),
+  // foto site ini di perangkat ini dihapus. Site, kode site laporan, dan camp kembali ke bawaan site (bukan ke BCP).
   const reset = async () => {
+    if (!site) return;
     if (!sure) { setSure(true); setTimeout(() => setSure(false), 4000); return; }
     resetting.current = true;
     at.current = 0; // hentikan pengiriman isian lama
-    try { localStorage.setItem(KEY, JSON.stringify({ v: 1, day: workDay(), at: Date.now(), state: { ...init(), dt: todayStr() } })); } catch { /* abaikan */ }
+    try { localStorage.setItem(draftKey(site.id), JSON.stringify({ v: 1, day: workDay(), at: Date.now(), state: { ...init(site), dt: todayStr() } })); } catch { /* abaikan */ }
     await idbClear();
     location.reload();
   };
@@ -180,7 +189,7 @@ export default function App() {
         {authed && (
           <>
             <div className="note" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "0 0 12px" }}>
-              <span>Isian tersimpan otomatis dan tersinkron ke perangkat lain; foto hanya di perangkat ini dan terhapus otomatis besok (pukul 03.00).</span>
+              <span>Isian tersimpan otomatis dan tersinkron ke perangkat lain di site {site?.nama}; foto hanya di perangkat ini dan terhapus otomatis besok (pukul 03.00).</span>
               <span className={syncSt.state === "error" ? "err" : "hint"} style={{ margin: 0 }} role="status">{syncText}</span>
               {syncSt.state === "error" && <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => syncNow()}>Coba sinkron</button>}
               <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={reset}>{sure ? "Yakin? Klik lagi: isian di semua perangkat kembali ke pola" : "Mulai baru"}</button>
@@ -207,16 +216,15 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="site">Site</label>
-                  <select id="site" value={s.site} onChange={(e) => up({ site: e.target.value })}>
-                    <option>BCP</option>
-                    <option value="__x">Lainnya…</option>
-                  </select>
+                  <span className="lbl" id="site-l">Site</span>
+                  <div className="site-box" aria-labelledby="site-l">
+                    <b>{site?.nama}</b>
+                    {!openMode && <button type="button" className="lnk" onClick={() => logout()}>Ganti site</button>}
+                  </div>
                 </div>
               </div>
               <label className="chk"><input type="checkbox" checked={s.mealAuto} onChange={(e) => up(e.target.checked ? { mealAuto: true, meal: mealByHour(new Date().getHours()) } : { mealAuto: false })} /> Waktu makan otomatis sesuai jam</label>
               <div className="note" style={{ marginTop: 2 }}>Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis.</div>
-              {s.site === "__x" && <div><label htmlFor="sxi">Nama site</label><input id="sxi" value={s.sxi} placeholder="Ketik nama site" onChange={(e) => up({ sxi: e.target.value })} /></div>}
             </section>
             {s.tab === "tf" && <TestFoodTab s={s} up={up} setList={setList} sync={sync} copy={copy} wa={wa} toast={toast} />}
             {s.tab === "kal" && <KaloriTab s={s} up={up} setRows={setRows} setSlots={setSlots} sync={sync} copy={copy} wa={wa} toast={toast} />}

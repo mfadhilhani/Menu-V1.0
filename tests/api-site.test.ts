@@ -88,6 +88,17 @@ test("isolasi draf: DPS tidak bisa membaca atau menimpa draf BCP", async () => {
   assert.equal(readDps.draft.state.jn, "BBQ DPS");
 });
 
+test("tab lama yang masih membuka BCP tidak bisa menulis ke DPS setelah cookie berganti (409)", async () => {
+  const dps = (await login({ site: "dps", pin: "2222" })).cookie;
+  const body = JSON.stringify({ at: 5000, day: "2026-11-06", device: "HP", state: { jn: "isi tab BCP" } });
+  const r = await draftPut(req("/api/draft", { method: "PUT", cookie: dps, body, headers: { "x-site": "bcp" } }));
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).error, "site");
+  assert.equal((await draftGet(req("/api/draft", { cookie: dps, headers: { "x-site": "bcp" } }))).status, 409);
+  assert.equal((await (await draftGet(req("/api/draft", { cookie: dps }))).json()).draft, null);
+  assert.equal((await draftPut(req("/api/draft", { method: "PUT", cookie: dps, body, headers: { "x-site": "dps" } }))).status, 200);
+});
+
 test("tanpa cookie atau dengan cookie palsu, data ditolak (401)", async () => {
   const dps = (await login({ site: "dps", pin: "2222" })).cookie.split(".");
   dps[1] = "bcp";
@@ -98,7 +109,7 @@ test("tanpa cookie atau dengan cookie palsu, data ditolak (401)", async () => {
 });
 
 test("logout menghapus cookie", async () => {
-  const r = await logout(req("/api/auth/logout", { method: "POST" }));
+  const r = await logout();
   assert.equal(r.status, 200);
   assert.match(r.headers.get("set-cookie") || "", /tf_auth=;.*Max-Age=0/);
 });
@@ -107,6 +118,12 @@ test("batas percobaan PIN per IP: percobaan ke-11 ditolak (429)", async () => {
   let last = 0;
   for (let i = 0; i < 11; i++) last = (await authPost(req("/api/auth", { method: "POST", ip: "10.9.9.9", body: JSON.stringify({ site: "dps", pin: "0" }) }))).status;
   assert.equal(last, 429);
+});
+
+test("login yang berhasil tidak dihitung: satu Wi-Fi site (satu IP) bisa dipakai banyak orang", async () => {
+  let last = 0;
+  for (let i = 0; i < 15; i++) last = (await authPost(req("/api/auth", { method: "POST", ip: "10.8.8.8", body: JSON.stringify({ site: "dps", pin: "2222" }) }))).status;
+  assert.equal(last, 200);
 });
 
 test("clientIp: X-Real-IP dari proxy, lalu entri terakhir X-Forwarded-For (yang ditambahkan proxy)", () => {
