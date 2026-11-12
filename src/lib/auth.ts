@@ -1,79 +1,43 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { anyPin, DEFAULT_SITE_ID, siteById, siteConfig, SiteConfigError, STANDARD, type Site, type SiteConfig } from "./site";
-import { AuthConfigError, authSecret, COOKIE, readToken } from "./token";
 
-export { COOKIE } from "./token";
+export const COOKIE = "tf_auth";
+const secret = () => process.env.AUTH_SECRET || process.env.APP_PIN || "dev-secret";
 export const isMock = () => process.env.MOCK_BACKEND === "1";
 
-type Ctx = { cfg: SiteConfig; secret: string };
-type Fail = { error: NextResponse };
-const serverError = (msg: string) => NextResponse.json({ error: msg }, { status: 500 });
-
-// Konfigurasi dibaca ulang tiap permintaan (murah), jadi perubahan env langsung berlaku setelah restart/redeploy.
-// Detail kesalahan SITE_PINS/SITE_CUSTOM hanya ditulis ke log server: pesannya bisa memuat nama site custom,
-// yang tidak boleh terlihat oleh orang yang belum login.
-export function authContext(): Ctx | Fail {
-  try {
-    return { cfg: siteConfig(), secret: authSecret() };
-  } catch (e) {
-    if (e instanceof SiteConfigError) {
-      console.error("[auth] konfigurasi site tidak valid:", e.message);
-      return { error: serverError("Konfigurasi site di server tidak valid (SITE_PINS / SITE_CUSTOM). Detailnya ada di log server.") };
-    }
-    if (e instanceof AuthConfigError) return { error: serverError(e.message) };
-    throw e;
-  }
+const sign = (exp: number) => createHmac("sha256", secret()).update(String(exp)).digest("hex");
+export function makeToken(days = 30) {
+  const exp = Date.now() + days * 86400000;
+  return `${exp}.${sign(exp)}`;
 }
-// Mode coba lokal tanpa PIN sama sekali: terbuka, dianggap BCP.
-export const openMock = (cfg: SiteConfig) => isMock() && !anyPin(cfg);
-
-// Site milik permintaan ini, diambil dari cookie yang ditandatangani server (bukan dari isi permintaan).
-export function session(req: NextRequest): { site: Site } | Fail {
-  const c = authContext();
-  if ("error" in c) return c;
-  if (openMock(c.cfg)) return { site: STANDARD.find((s) => s.id === DEFAULT_SITE_ID) as Site };
-  if (!anyPin(c.cfg)) return { error: serverError("PIN belum diisi di server. Isi SITE_PINS (atau APP_PIN untuk BCP) dan AUTH_SECRET di .env.local atau Environment Variables, lalu restart/redeploy.") };
-  const info = readToken(c.secret, req.cookies.get(COOKIE)?.value, (id) => c.cfg.pins.get(id), { legacyPin: process.env.APP_PIN?.trim() });
-  const site = info && siteById(c.cfg, info.siteId);
-  return site ? { site } : { error: NextResponse.json({ error: "login" }, { status: 401 }) };
+function same(a: string, b: string) {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
 }
-// Untuk route yang tidak bergantung site (katalog makanan bersama, video): cukup sudah login.
+export function tokenOk(tok?: string) {
+  if (!tok) return false;
+  const [e, s] = tok.split(".");
+  const exp = Number(e);
+  return !!s && Number.isFinite(exp) && exp > Date.now() && same(s, sign(exp));
+}
+export function pinOk(pin: string) {
+  const p = process.env.APP_PIN || "";
+  return !!p && same(pin, p);
+}
+// Dipakai di setiap route yang menyentuh Sheet atau AI.
 export function guard(req: NextRequest): NextResponse | null {
-  const s = session(req);
-  return "error" in s ? s.error : null;
+  if (isMock() && !process.env.APP_PIN) return null; // mode coba lokal
+  if (!process.env.APP_PIN) return NextResponse.json({ error: "APP_PIN belum diisi di server. Isi APP_PIN (dan AUTH_SECRET) di .env.local atau di Environment Variables Vercel, lalu restart/redeploy." }, { status: 500 });
+  return tokenOk(req.cookies.get(COOKIE)?.value) ? null : NextResponse.json({ error: "login" }, { status: 401 });
 }
 
-// IP klien untuk batas percobaan PIN. X-Real-IP diisi proxy (Nginx/Vercel) dan menimpa kiriman klien;
-// di X-Forwarded-For entri TERAKHIR yang ditambahkan proxy terdekat (entri pertama bisa dipalsukan klien).
-// PENTING: ini hanya aman kalau aplikasi berada di belakang proxy yang menimpa header itu (Vercel, atau Nginx dengan
-// `proxy_set_header X-Real-IP $remote_addr;`). Jangan buka port Node langsung ke internet.
-export function clientIp(req: NextRequest) {
-  const real = req.headers.get("x-real-ip")?.trim();
-  if (real) return real;
-  const xff = (req.headers.get("x-forwarded-for") || "").split(",").map((s) => s.trim()).filter(Boolean);
-  return xff.at(-1) || "local";
-}
-
-// Pembatas sederhana (per instance server): PIN SALAH per IP dan panggilan AI per hari.
-// Hanya percobaan gagal yang dihitung: semua HP di satu Wi-Fi site biasanya keluar lewat satu IP,
-// jadi menghitung login yang berhasil akan mengunci orang yang PIN-nya benar.
-const WINDOW = 600000, MAX_FAILS = 10;
-const fails = new Map<string, { n: number; t: number }>();
-const live = (ip: string, now: number) => { const r = fails.get(ip); return r && now - r.t <= WINDOW ? r : null; };
-// false = IP ini sudah 10 kali salah dalam 10 menit terakhir.
-export function pinAllowed(ip: string) {
-  return (live(ip, Date.now())?.n ?? 0) < MAX_FAILS;
-}
-const MAX_KEYS = 5000;
-export function pinFailed(ip: string) {
-  const now = Date.now(), r = live(ip, now);
-  if (r) { r.n++; return; }
-  if (fails.size >= MAX_KEYS) {
-    // Jangan tumbuh tanpa batas (mis. IP palsu yang terus berganti): buang yang kedaluwarsa, lalu yang paling lama.
-    for (const [k, v] of fails) if (now - v.t > WINDOW) fails.delete(k);
-    for (const k of fails.keys()) { if (fails.size < MAX_KEYS) break; fails.delete(k); }
-  }
-  fails.set(ip, { n: 1, t: now });
+// Pembatas sederhana (per instance server): percobaan PIN dan panggilan AI per hari.
+const tries = new Map<string, { n: number; t: number }>();
+export function pinTries(ip: string) {
+  const now = Date.now(), r = tries.get(ip);
+  if (!r || now - r.t > 600000) { tries.set(ip, { n: 1, t: now }); return true; }
+  r.n++;
+  return r.n <= 10;
 }
 let ai = { day: "", n: 0 };
 export function aiAllowed() {

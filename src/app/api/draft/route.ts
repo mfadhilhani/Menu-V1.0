@@ -1,50 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { session } from "@/lib/auth";
+import { guard } from "@/lib/auth";
 import { getDraft, putDraft } from "@/lib/store";
+import { siteKeyOf } from "@/lib/text";
 
-// Sinkronisasi isian (teks saja) antar perangkat dalam SATU site. Site diambil dari cookie login,
-// jadi perangkat DPS tidak bisa membaca atau menimpa draf BCP walau isi permintaannya diubah.
-const fail = (e: unknown) => {
-  console.error("[draft]", e);
-  return NextResponse.json({ error: "Gagal menyimpan atau membaca draf di server" }, { status: 500 });
-};
+// Sinkronisasi isian (teks saja) antar perangkat pada site yang sama. Satu baris per site di tab "draf" Google Sheet.
+const fail = (e: unknown) => NextResponse.json({ error: e instanceof Error ? e.message : "Kesalahan server" }, { status: 500 });
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
-// Cookie login dipakai bersama semua tab di browser. Kalau satu tab login ke site lain, tab lama yang masih
-// membuka site sebelumnya mengirim X-Site lama: ditolak 409 supaya isiannya tidak masuk ke draf site baru.
-// Tanpa X-Site = klien versi lama (sebelum V2.0), yang selalu BCP: hanya boleh ke draf BCP.
-function siteOf(req: NextRequest) {
-  const s = session(req);
-  if ("error" in s) return s;
-  const want = req.headers.get("x-site") || "bcp";
-  if (want !== s.site.id) return { error: NextResponse.json({ error: "site", site: s.site.id }, { status: 409 }) };
-  return s;
-}
 
-// GET ?since=<waktu>: isi draf hanya dikirim kalau lebih baru dari yang sudah dimiliki perangkat (hemat data).
+// GET ?site=<kunci>&since=<versi>: isi draf hanya dikirim kalau versinya lebih baru dari yang dimiliki perangkat (hemat data).
 export async function GET(req: NextRequest) {
-  const s = siteOf(req);
-  if ("error" in s) return s.error;
+  const d = guard(req);
+  if (d) return d;
   try {
+    const site = siteKeyOf(req.nextUrl.searchParams.get("site") || "");
+    if (!site) return NextResponse.json({ error: "Site belum diisi" }, { status: 400 });
     const since = Number(req.nextUrl.searchParams.get("since") || 0);
-    const cur = await getDraft(s.site.id);
+    const cur = await getDraft(site);
     if (!cur) return NextResponse.json({ draft: null });
     return NextResponse.json({ draft: cur.at > since ? cur : { at: cur.at, day: cur.day, device: cur.device } });
   } catch (e) { return fail(e); }
 }
 
+// PUT { site, base, day, device, state }: base = versi terakhir yang sudah dilihat perangkat ini.
+// Jawaban { ok: true, at } kalau diterima, atau { ok: false, draft } kalau perangkat lain sudah mengubah lebih dulu.
 export async function PUT(req: NextRequest) {
-  const s = siteOf(req);
-  if ("error" in s) return s.error;
+  const d = guard(req);
+  if (d) return d;
   try {
     const raw = await req.text();
     if (raw.length > 900000) return NextResponse.json({ error: "Isian terlalu besar" }, { status: 413 });
-    let b: { at?: number; day?: string; device?: string; state?: Record<string, unknown> };
-    try { b = JSON.parse(raw); } catch { return NextResponse.json({ error: "Data draf tidak valid" }, { status: 400 }); }
-    const at = Number(b.at);
-    if (!Number.isFinite(at) || at <= 0 || !DAY.test(String(b.day || "")) || !b.state || typeof b.state !== "object" || Array.isArray(b.state)) {
+    const b = JSON.parse(raw) as { site?: string; base?: number; day?: string; device?: string; state?: Record<string, unknown> };
+    const site = siteKeyOf(String(b.site || "")), base = Number(b.base || 0);
+    if (!site || !Number.isFinite(base) || base < 0 || !DAY.test(String(b.day || "")) || !b.state || typeof b.state !== "object" || Array.isArray(b.state)) {
       return NextResponse.json({ error: "Data draf tidak valid" }, { status: 400 });
     }
-    const r = await putDraft(s.site.id, { at, day: String(b.day), device: String(b.device || "").slice(0, 30), state: b.state });
+    const r = await putDraft(site, { base, day: String(b.day), device: String(b.device || "").slice(0, 30), state: b.state });
     return NextResponse.json(r);
   } catch (e) { return fail(e); }
 }

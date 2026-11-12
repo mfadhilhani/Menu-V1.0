@@ -1,31 +1,29 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { blobOf, drawKolase, drawPoster, Meal, SlotView, tvFrames } from "@/lib/canvas";
+import { blobOf, Brand, drawKolase, drawPoster, Meal, SlotView, tvFrames } from "@/lib/canvas";
+import { libDel, libGet, libPut } from "@/lib/photolib";
 import { useSlotPhotos } from "@/lib/photos";
 import { cur, kaloriReport, siteName, Slot, State, Sync, warnaMessage } from "@/lib/report";
 import { saveBlob, shareFiles } from "@/lib/share";
-import { siteLabel } from "@/lib/site";
 import { norm, num, toTitle } from "@/lib/text";
 import { useFoods } from "./FoodsContext";
 import NameInput from "./NameInput";
 import { SortableList } from "./Sortable";
 
 type SetSlots = (fn: (l: Slot[]) => Slot[]) => void;
-type Props = { s: State; setSlots: SetSlots; sync: Sync; toast: (m: string) => void };
+// ns = awalan site pada kunci foto ("" untuk BCP), brand = identitas site selain BCP (null untuk BCP).
+type Props = { s: State; setSlots: SetSlots; sync: Sync; toast: (m: string) => void; ns: string; brand: Brand | null };
 
-export default function PosterSection({ s, setSlots, sync, toast }: Props) {
+export default function PosterSection({ s, setSlots, sync, toast, ns, brand }: Props) {
   const meal = s.meal as Meal, dinner = meal === "Dinner";
   const slots = cur(s).slots, set = setSlots;
-  const { foods, patchFood, addManual, site } = useFoods();
-  // Template gambar (poster, kartu, sampul, penutup) masih bertuliskan BCP dan berlogo DH. Versi untuk site lain
-  // menunggu file template bersih dari desainer (keputusan D3), jadi pengguna diberi tahu dengan jelas.
-  const bcpTemplate = !!site && site.id !== "bcp";
-  const photos = useSlotPhotos(Object.values(s.md).flatMap((m) => m.slots).map((x) => x.id));
+  const { foods, patchFood, addManual } = useFoods();
+  const photos = useSlotPhotos(Object.values(s.md).flatMap((m) => m.slots).map((x) => ns + x.id));
   const poster = useRef<HTMLCanvasElement>(null), kolase = useRef<HTMLCanvasElement>(null);
   const [hasKolase, setHasKolase] = useState(false);
   const upd = (id: string, p: Partial<Slot>) => set((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
 
-  const mkViews = (): SlotView[] => slots.map((x) => ({ name: toTitle(x.n), desc: x.desc, kkal: num(x.kkal), img: photos.map[x.id]?.bmp ?? null }));
+  const mkViews = (): SlotView[] => slots.map((x) => ({ name: toTitle(x.n), desc: x.desc, kkal: num(x.kkal), img: photos.map[ns + x.id]?.bmp ?? null }));
   const [vid, setVid] = useState<{ file: File; url: string } | null>(null);
   const [vbusy, setVbusy] = useState("");
   const dropVid = () => setVid((v) => { if (v) URL.revokeObjectURL(v.url); return null; });
@@ -36,17 +34,59 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
     const views = mkViews();
     dropVid();
     const t = setTimeout(async () => {
-      if (poster.current) await drawPoster(poster.current, meal, views);
-      if (kolase.current) setHasKolase(await drawKolase(kolase.current, views));
+      try {
+        if (poster.current) await drawPoster(poster.current, meal, views, brand);
+        if (kolase.current) setHasKolase(await drawKolase(kolase.current, views, brand));
+      } catch (e) { console.error("[poster]", e); }
     }, 150);
     return () => clearTimeout(t);
-  }, [meal, slots, photos.map]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meal, slots, photos.map, brand, ns]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- simpanan foto per nama menu ----------
+  // Foto yang dipasang untuk suatu menu disimpan dengan kunci nama menu itu, dan dipasang lagi otomatis saat nama
+  // yang sama dipakai (mis. besok atau minggu depan). Foto poster harian sendiri tetap dihapus tiap hari kerja baru.
+  const lib = useRef({ pend: new Set<string>(), off: new Map<string, string>(), tried: new Set<string>() });
+  const live = useRef({ slots, map: photos.map });
+  live.current = { slots, map: photos.map };
+  const pickPhoto = async (x: Slot, f: File) => {
+    const pid = ns + x.id, saved = await photos.set(pid, f);
+    if (!saved) { toast("Foto tidak bisa dibaca. Coba foto lain (JPG atau PNG)."); return; }
+    const k = norm(x.n);
+    lib.current.off.delete(pid);
+    if (k.length >= 2) { lib.current.pend.delete(pid); libPut(k, saved); } else lib.current.pend.add(pid); // belum bernama: disimpan setelah namanya diisi
+  };
+  const dropPhoto = (x: Slot, forget: boolean) => {
+    const pid = ns + x.id, k = norm(x.n);
+    if (k) lib.current.off.set(pid, k); // jangan dipasang otomatis lagi untuk nama ini selama halaman terbuka
+    lib.current.pend.delete(pid);
+    photos.clear(pid);
+    if (forget && k) { libDel(k); toast("Foto dihapus dari simpanan"); }
+  };
+  useEffect(() => {
+    if (!photos.ready) return;
+    const t = setTimeout(() => {
+      slots.forEach(async (x) => {
+        const pid = ns + x.id, k = norm(x.n), ph = photos.map[pid], L = lib.current;
+        if (ph) {
+          if (ph.auto && ph.auto !== k) { photos.clear(pid); return; }           // nama diganti: foto simpanan menu lama dilepas
+          if (!ph.auto && L.pend.has(pid) && k.length >= 2) { L.pend.delete(pid); libPut(k, ph.file); }
+          return;
+        }
+        if (k.length < 2 || L.off.get(pid) === k || L.tried.has(pid + "\n" + k)) return;
+        L.tried.add(pid + "\n" + k);
+        const f = await libGet(k);
+        const now = live.current;
+        if (f && !now.map[pid] && norm(now.slots.find((y) => y.id === x.id)?.n || "") === k) photos.set(pid, f, k, true);
+      });
+    }, 700);
+    return () => clearTimeout(t);
+  }, [slots, photos.map, photos.ready, ns]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Video TV: kartu tiap menu digambar di HP, MP4 disusun di server (hasil sama di iPhone dan Android).
   const makeVideo = async () => {
     setVbusy("Menyiapkan kartu…");
     try {
-      const frames = await tvFrames(mkViews(), { jenis: s.jn, site: siteLabel(siteName(s)) });
+      const frames = await tvFrames(mkViews(), { jenis: s.jn, site: siteName(s) }, brand);
       if (!frames.length) { toast("Isi nama atau foto minimal satu menu"); return; }
       let blobs: Blob[] = [];
       for (const q of [0.9, 0.75, 0.6]) {           // jaga total kiriman di bawah ~4 MB (batas Vercel 4,5 MB)
@@ -103,15 +143,9 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
   return (
     <section>
       <h2>Poster menu {meal} ({slots.length} menu)</h2>
-      {bcpTemplate && (
-        <p className="warn" role="note">
-          Template poster, kartu kode warna, dan video untuk site {site?.nama} belum tersedia. Sementara gambar masih memakai template BCP
-          (tulisan &quot;BCP&quot; dan logo DH). Nama site di sampul video dan di teks laporan sudah mengikuti site {site?.nama}.
-        </p>
-      )}
       <SortableList items={slots} onChange={(n) => set(() => n)} className="slots">
         {(x, i, handle) => {
-          const ph = photos.map[x.id];
+          const ph = photos.map[ns + x.id];
           return (
             <div className="sl">
               <h3>{handle}<span>Menu {i + 1}</span></h3>
@@ -125,10 +159,13 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
               <div className="pf">
                 {ph && <img className="pth" src={ph.url} alt={`Foto menu ${i + 1}`} />}
                 <label className="fbtn">{ph ? "Ganti foto" : "Pilih foto"}
-                  <input type="file" accept="image/*" hidden onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f && !(await photos.set(x.id, f))) toast("Foto tidak bisa dibaca"); }} />
+                  <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) pickPhoto(x, f); }} />
                 </label>
-                {ph && <button type="button" className="x" aria-label="Hapus foto" onClick={() => photos.clear(x.id)}>✕</button>}
+                {ph && <button type="button" className="x" aria-label={`Hapus foto menu ${i + 1}`} onClick={() => dropPhoto(x, false)}>✕</button>}
               </div>
+              {ph?.auto && (
+                <div className="note">Dari simpanan foto menu ini. <button type="button" className="lnkb" onClick={() => dropPhoto(x, true)}>Hapus dari simpanan</button></div>
+              )}
             </div>
           );
         }}
@@ -138,7 +175,9 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
           ? "Urutan: Menu 1-3 baris atas (kiri ke kanan), 4-6 baris bawah. Deskripsi hanya tampil di poster biasa."
           : "Urutan: Menu 1 = lingkaran paling atas (kanan), 2 = kiri, 3 = kanan bawah, 4 = kiri bawah."}{" "}
         Nama, kalori, dan deskripsi terisi dari Sheet; urutan form = posisi di poster. Geser ⠿ untuk memindah urutan. Menu tanpa kalori tetap muncul di kolase, tanpa kartu kode warna.
+        {" "}Foto yang kamu pasang disimpan per nama menu dan muncul lagi otomatis saat menu yang sama dipakai di lain hari.
       </div>
+      {brand && <div className="note">Poster, kolase, dan video memakai tulisan <b>Site {brand.site}</b>{brand.logo ? " dan logo site ini" : " tanpa logo DH (unggah logo di Info umum kalau ada)"}.</div>}
       <h3 className="ph">Poster biasa</h3>
       <canvas ref={poster} className="cvs narrow" />
       <h3 className="ph">Poster kode warna (kolase)</h3>
@@ -151,7 +190,7 @@ export default function PosterSection({ s, setSlots, sync, toast }: Props) {
         <button type="button" className="p" disabled={!hasKolase} onClick={() => send("kolase")}>Kirim poster kode warna + pesan kode warna ke WhatsApp</button>
       </div>
       <h3 className="ph">Video untuk TV (MP4)</h3>
-      <p className="hint">Urutan: sampul (jenis menu dan site dari Info umum), kartu kode warna tiap menu, lalu penutup “Selamat Menikmati”. 5 detik per gambar, ukuran 1920×1080. Video dibuat di server, jadi hasilnya sama di semua HP.</p>
+      <p className="hint">Urutan: sampul (jenis menu, site, dan logo site dari Info umum), kartu kode warna tiap menu, lalu penutup “Selamat Menikmati”. 5 detik per gambar, ukuran 1920×1080. Video dibuat di server, jadi hasilnya sama di semua HP.</p>
       <div className="acts">
         <button type="button" className="p" disabled={!hasKolase || !!vbusy} onClick={makeVideo}>{vbusy || (vid ? "Buat ulang video" : "Buat video TV (MP4)")}</button>
       </div>

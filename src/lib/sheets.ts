@@ -1,6 +1,5 @@
 // Google Sheets lewat REST (akun layanan). Kolom: key | nama | deskripsi | kkal_100g | sumber | status | diubah | ikon
-// google-auth-library dimuat saat pertama kali dipakai, jadi mode coba (MOCK_BACKEND) dan uji tidak membutuhkannya.
-import type { JWT } from "google-auth-library";
+import { JWT } from "google-auth-library";
 
 export type Row = { row: number; nama: string; deskripsi: string; kkal: number | null; sumber: string; status: string; diubah: string; ikon: string };
 export const HEADER = ["key", "nama", "deskripsi", "kkal_100g", "sumber", "status", "diubah", "ikon"];
@@ -9,18 +8,17 @@ const ID = () => process.env.SHEET_ID || "";
 const TAB = () => process.env.SHEET_TAB || "makanan";
 let jwt: JWT | null = null;
 
-async function client() {
+function client() {
   if (!jwt) {
     const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
     const key = (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
     if (!ID() || !email || !key) throw new Error("SHEET_ID / kredensial Google belum diisi");
-    const { JWT } = await import("google-auth-library");
     jwt = new JWT({ email, key, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
   }
   return jwt;
 }
 async function api(path: string, init: RequestInit = {}) {
-  const { token } = await (await client()).getAccessToken();
+  const { token } = await client().getAccessToken();
   const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${ID()}${path}`, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -87,53 +85,65 @@ export async function deleteRow(row: number) {
   });
 }
 
-// Tab draf: satu baris berisi isian (teks saja) yang disinkronkan antar perangkat. SATU TAB PER SITE:
-// BCP tetap memakai tab lama (`draf`, atau SHEET_DRAFT_TAB) supaya data dan versi lama tetap jalan;
-// site lain memakai tab `draf_<id site>` yang dibuat otomatis. Site ditentukan server dari cookie login.
-// Kolom: diubah_ms | hari | perangkat | isi (JSON, dipecah per 45.000 karakter karena batas satu sel 50.000).
-const DTAB = () => process.env.SHEET_DRAFT_TAB || "draf";
-export const draftTabName = (siteId: string) => (siteId === "bcp" ? DTAB() : `${DTAB()}_${siteId}`);
-const draftTabs = new Map<string, string>(); // nama yang diminta -> judul tab sebenarnya
-const drng = (tab: string, a: string) => encodeURIComponent(`${q(tab)}!${a}`);
-const CHUNK = 45000, MAXC = 23; // kolom D sampai Z
-async function findTab(want: string) {
+// Tab berkunci site: satu baris per site. Dipakai untuk draf isian (tab "draf") dan logo site (tab "logo").
+// Kolom: site | diubah_ms | hari | perangkat | isi (dipecah per 45.000 karakter karena batas satu sel 50.000).
+// Tab draf versi lama (satu baris untuk semua, kolom A = diubah_ms) dipindah otomatis ke site "bcp".
+const CHUNK = 45000, MAXC = 22; // kolom E sampai Z
+const KV_HEADER = ["site", "diubah_ms", "hari", "perangkat", "isi (jangan diubah manual)"];
+export const DRAFT_TAB = () => process.env.SHEET_DRAFT_TAB || "draf";
+export const LOGO_TAB = () => process.env.SHEET_LOGO_TAB || "logo";
+export type KvRow = { row: number; site: string; at: number; day: string; device: string; json: string };
+const kvTabs = new Map<string, string>(); // nama tab yang diminta -> nama tab sebenarnya di Sheet
+const krng = (tab: string, a: string) => encodeURIComponent(`${q(tab)}!${a}`);
+
+async function ensureKvTab(want: string): Promise<string> {
+  const known = kvTabs.get(want);
+  if (known) return known;
   const meta = await api(`?fields=sheets.properties(sheetId,title)`);
   const titles: string[] = (meta.sheets || []).map((x: { properties: { title: string } }) => x.properties.title);
-  return titles.find((t) => t.toLowerCase() === want.toLowerCase());
-}
-async function ensureDraftTab(want: string) {
-  const hit = draftTabs.get(want);
-  if (hit) return hit;
-  const found = await findTab(want);
-  if (found) { draftTabs.set(want, found); return found; }
-  try {
+  let tab = titles.find((t) => t.toLowerCase() === want.toLowerCase());
+  if (!tab) {
     await api(`:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: [{ addSheet: { properties: { title: want } } }] }) });
-  } catch (e) {
-    // Dua perangkat membuka site baru bersamaan: perangkat lain sudah membuat tabnya lebih dulu.
-    const again = await findTab(want);
-    if (!again) throw e;
-    draftTabs.set(want, again);
-    return again;
+    tab = want;
+    await api(`/values/${krng(tab, "A1:E1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [KV_HEADER] }) });
+  } else {
+    const d = await api(`/values/${krng(tab, "A1:Z2")}?valueRenderOption=UNFORMATTED_VALUE`);
+    const head = String(d.values?.[0]?.[0] ?? "");
+    if (head === "diubah_ms") {
+      // Susunan lama: A = diubah_ms, B = hari, C = perangkat, D.. = isi. Geser satu kolom dan beri kunci site "bcp".
+      const old: unknown[] = d.values?.[1] || [];
+      const cells = old.length ? ["bcp", ...old.slice(0, 25).map((x) => String(x ?? ""))] : [];
+      const pad = (r: unknown[]) => [...r, ...Array(Math.max(0, 26 - r.length)).fill("")];
+      await api(`/values/${krng(tab, "A1:Z2")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [pad(KV_HEADER), pad(cells)] }) });
+    } else if (head !== "site") {
+      await api(`/values/${krng(tab, "A1:E1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [KV_HEADER] }) });
+    }
   }
-  await api(`/values/${drng(want, "A1:D1")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [["diubah_ms", "hari", "perangkat", "isi (JSON, jangan diubah manual)"]] }) });
-  draftTabs.set(want, want);
-  return want;
+  kvTabs.set(want, tab);
+  return tab;
 }
-export type DraftRow = { at: number; day: string; device: string; json: string };
-export async function readDraft(siteId: string): Promise<DraftRow | null> {
-  const tab = await ensureDraftTab(draftTabName(siteId));
-  const d = await api(`/values/${drng(tab, "A2:Z2")}?valueRenderOption=UNFORMATTED_VALUE`);
-  const v: unknown[] = d.values?.[0] || [];
-  const json = v.slice(3).map((x) => String(x ?? "")).join("");
-  if (!json) return null;
-  return { at: Number(v[0]) || 0, day: String(v[1] ?? ""), device: String(v[2] ?? ""), json };
+export async function readKv(want: string): Promise<KvRow[]> {
+  const tab = await ensureKvTab(want);
+  const d = await api(`/values/${krng(tab, "A2:Z")}?valueRenderOption=UNFORMATTED_VALUE`);
+  const out: KvRow[] = [];
+  ((d.values || []) as unknown[][]).forEach((v, i) => {
+    const site = String(v[0] ?? "").trim();
+    if (!site) return;
+    out.push({ row: i + 2, site, at: Number(v[1]) || 0, day: String(v[2] ?? ""), device: String(v[3] ?? ""), json: v.slice(4).map((x) => String(x ?? "")).join("") });
+  });
+  return out;
 }
-export async function writeDraft(siteId: string, r: DraftRow) {
-  const tab = await ensureDraftTab(draftTabName(siteId));
+// row = nomor baris yang sudah ada untuk site ini (dari readKv), atau null untuk menambah baris baru.
+export async function writeKv(want: string, row: number | null, r: Omit<KvRow, "row">) {
+  const tab = await ensureKvTab(want);
   const parts: string[] = [];
   for (let i = 0; i < r.json.length; i += CHUNK) parts.push(r.json.slice(i, i + CHUNK));
   if (parts.length > MAXC) throw new Error("Isian terlalu besar untuk disimpan di Sheet");
   // Angka waktu ditulis sebagai teks supaya tidak diubah format angka Sheet. Sel sisa dikosongkan.
-  const row = [String(r.at), r.day, r.device, ...parts, ...Array(MAXC - parts.length).fill("")];
-  await api(`/values/${drng(tab, "A2:Z2")}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [row] }) });
+  const cells = [r.site, String(r.at), r.day, r.device, ...parts, ...Array(MAXC - parts.length).fill("")];
+  if (row) {
+    await api(`/values/${krng(tab, `A${row}:Z${row}`)}?valueInputOption=RAW`, { method: "PUT", body: JSON.stringify({ values: [cells] }) });
+  } else {
+    await api(`/values/${krng(tab, "A:Z")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, { method: "POST", body: JSON.stringify({ values: [cells] }) });
+  }
 }

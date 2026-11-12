@@ -1,8 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-export const metadata: Metadata = { title: "Tesfood", description: "Laporan test food, menu kalori, dan data makanan" };
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const metadata: Metadata = {
+  title: "Tesfood", description: "Laporan test food, menu kalori, dan data makanan",
+  appleWebApp: { capable: true, title: "Tesfood", statusBarStyle: "default" },
+  icons: { icon: "/icon-192.png", apple: "/icon-192.png" },
+};
+export const viewport: Viewport = {
+  width: "device-width", initialScale: 1, viewportFit: "cover",
+  themeColor: [{ media: "(prefers-color-scheme: light)", color: "#0b2a5b" }, { media: "(prefers-color-scheme: dark)", color: "#0d2247" }],
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

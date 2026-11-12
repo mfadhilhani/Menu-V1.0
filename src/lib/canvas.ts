@@ -4,6 +4,9 @@ import { fmt } from "./text";
 export type Bmp = ImageBitmap | HTMLImageElement;
 export type Meal = "Breakfast" | "Dinner";
 export type SlotView = { name: string; desc: string; kkal: number | null; img: Bmp | null };
+// Identitas site selain BCP. Kalau diisi: tulisan site di poster mengikuti nama ini, logo DH dihilangkan,
+// dan logo yang diunggah (kalau ada) dipasang di tempatnya. Kosong (undefined/null) = desain asli BCP.
+export type Brand = { site: string; logo: Bmp | null };
 
 const srcCache = new Map<string, Promise<HTMLImageElement>>();
 export function loadSrc(src: string) {
@@ -41,9 +44,62 @@ function rrect(X: Ctx, x: number, y: number, w: number, h: number, r: number) {
   X.arcTo(x + w, y, x + w, y + h, r); X.arcTo(x + w, y + h, x, y + h, r); X.arcTo(x, y + h, x, y, r); X.arcTo(x, y, x + w, y, r);
   X.closePath();
 }
+const fit = (X: Ctx, t: string, font: (fs: number) => string, fs: number, max: number, min: number, step: number) => {
+  X.font = font(fs);
+  while (X.measureText(t).width > max && fs > min) { fs -= step; X.font = font(fs); }
+};
 const wOf = (b: Bmp) => ("naturalWidth" in b ? b.naturalWidth : b.width);
 const hOf = (b: Bmp) => ("naturalHeight" in b ? b.naturalHeight : b.height);
 export const blobOf = (c: HTMLCanvasElement, type = "image/png", q?: number) => new Promise<Blob>((r) => c.toBlob((b) => r(b as Blob), type, q));
+
+// ---------- identitas site (selain BCP) ----------
+// Posisi kotak logo DH di tiap gambar template (piksel gambar asli) dan warna latar di sekitarnya.
+type Box = { x: number; y: number; w: number; h: number; bg: string; pad: number };
+const LOGO_BOX: Record<"breakfast" | "dinner" | "kartu" | "video", Box> = {
+  breakfast: { x: 1060, y: 26, w: 276, h: 278, bg: "#FFFFFF", pad: 16 },
+  dinner: { x: 1256, y: 25, w: 125, h: 129, bg: "#FEECE0", pad: 8 },
+  kartu: { x: 1434, y: 43, w: 254, h: 263, bg: "#FFFFF3", pad: 16 },
+  video: { x: 1642, y: 50, w: 219, h: 226, bg: "#FFFFF3", pad: 14 },
+};
+function contain(X: Ctx, img: Bmp, x: number, y: number, w: number, h: number) {
+  const k = Math.min(w / wOf(img), h / hOf(img)), dw = wOf(img) * k, dh = hOf(img) * k;
+  X.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+// Tutup logo DH. Tanpa logo pengganti kotaknya diwarnai seperti latar; dengan logo, kotak putih + logo di tengah.
+function swapLogo(X: Ctx, b: Brand, box: Box) {
+  X.save();
+  X.fillStyle = b.logo ? "#FFFFFF" : box.bg;
+  X.fillRect(box.x, box.y, box.w, box.h);
+  if (b.logo) { X.imageSmoothingQuality = "high"; contain(X, b.logo, box.x + box.pad, box.y + box.pad, box.w - box.pad * 2, box.h - box.pad * 2); }
+  X.restore();
+}
+const siteLabel = (b: Brand) => b.site.trim() || "-";
+// Poster Breakfast: "Kantin BCP" di bawah tulisan Menu diganti "Site <nama>".
+function brandBreakfast(X: Ctx, b: Brand) {
+  swapLogo(X, b, LOGO_BOX.breakfast);
+  X.save();
+  X.fillStyle = "#FFFFFF"; X.fillRect(236, 528, 388, 86);
+  const t = "Site " + siteLabel(b);
+  X.fillStyle = "#000"; X.textAlign = "center"; X.textBaseline = "middle";
+  fit(X, t, (fs) => `700 ${fs}px ${PFONT}`, 88, 520, 36, 2);
+  X.fillText(t, 415, 572);
+  X.restore();
+}
+// Poster Dinner: hiasan "Site BCP" di kiri atas diganti hiasan serupa dengan nama site.
+function brandDinner(X: Ctx, b: Brand) {
+  swapLogo(X, b, LOGO_BOX.dinner);
+  X.save();
+  X.fillStyle = "#FEECE0"; X.fillRect(151, 98, 345, 206);
+  X.fillStyle = "#F7941D";
+  [[-48, -42, 52], [46, -46, 50], [-42, 46, 50], [48, 42, 52], [0, 0, 50]].forEach(([dx, dy, r]) => { X.beginPath(); X.arc(258 + dx, 195 + dy, r, 0, Math.PI * 2); X.fill(); });
+  X.translate(352, 204); X.rotate((-9 * Math.PI) / 180);
+  X.fillStyle = IND; X.textAlign = "center"; X.textBaseline = "middle";
+  X.font = `700 46px ${TF}`; X.fillText("Site", 0, -36);
+  const nm = siteLabel(b);
+  fit(X, nm, (fs) => `700 ${fs}px ${TF}`, 66, 280, 22, 2);
+  X.fillText(nm, 0, 24);
+  X.restore();
+}
 
 // ---------- poster ----------
 const SL4 = [{ cx: 992, cy: 650.5, tx: 999, ty: 891.5 }, { cx: 415, cy: 935, tx: 425.5, ty: 1166.5 }, { cx: 1082.5, cy: 1309, tx: 1035, ty: 1553.5 }, { cx: 425.5, cy: 1499, tx: 429.5, ty: 1762.5 }];
@@ -61,11 +117,12 @@ const TF = '"Playfair Display SC", Georgia, "Times New Roman", serif';
 const DF = '"Hanken Grotesk", Arial, sans-serif';
 const IND = "#3A3AA0";
 
-export async function drawPoster(cv: HTMLCanvasElement, meal: Meal, slots: SlotView[]) {
+export async function drawPoster(cv: HTMLCanvasElement, meal: Meal, slots: SlotView[], brand?: Brand | null) {
   const [bg] = await Promise.all([loadSrc(meal === "Breakfast" ? "/assets/poster-breakfast.png" : "/assets/poster-dinner.jpg"), loadFonts()]);
   cv.width = bg.naturalWidth; cv.height = bg.naturalHeight;
   const X = ctx2d(cv);
   X.drawImage(bg, 0, 0); X.imageSmoothingQuality = "high";
+  if (brand) { if (meal === "Breakfast") brandBreakfast(X, brand); else brandDinner(X, brand); }
   if (meal === "Breakfast") {
     SL4.forEach((s, i) => {
       const p = slots[i]; if (!p) return;
@@ -145,11 +202,12 @@ export function gridSheet(cards: HTMLCanvasElement[], perRow: number, gap: numbe
 
 // ---------- kartu landscape + kolase ----------
 const CB = { cx: 514, cy: 733.5, r: 367.5, dx: 905.5, dy: 588, dr: 153.5, bx: 162, by: 1011, bw: 719, bh: 151, rx: 1173, ry: 447, rw: 359, rh: 640 };
-export async function landscapeCard(p: SlotView) {
+export async function landscapeCard(p: SlotView, brand?: Brand | null) {
   const bg = await loadSrc("/assets/kartu-landscape.jpg");
   const sc = 1200 / 1748, c = document.createElement("canvas"); c.width = 1200; c.height = Math.round(1240 * sc);
   const X = ctx2d(c); X.scale(sc, sc); X.imageSmoothingQuality = "high";
   X.drawImage(bg, 0, 0, 1748, 1240);
+  if (brand) swapLogo(X, brand, LOGO_BOX.kartu);
   if (p.img) {
     const d = CB.r * 2, k = Math.max(d / wOf(p.img), d / hOf(p.img)), w = wOf(p.img) * k, h = hOf(p.img) * k;
     X.save(); X.beginPath(); X.arc(CB.cx, CB.cy, CB.r + 1.5, 0, Math.PI * 2); X.clip();
@@ -175,11 +233,11 @@ export async function landscapeCard(p: SlotView) {
   return c;
 }
 // Kolase kode warna: dua kartu ke samping, sisanya ke bawah. Mengembalikan false kalau tidak ada isi.
-export async function drawKolase(cv: HTMLCanvasElement, items: SlotView[]) {
+export async function drawKolase(cv: HTMLCanvasElement, items: SlotView[], brand?: Brand | null) {
   const act = items.filter((p) => p.name.trim() || p.img);
   if (!act.length) return false;
   const cards: HTMLCanvasElement[] = [];
-  for (const p of act) cards.push(await landscapeCard(p));
+  for (const p of act) cards.push(await landscapeCard(p, brand));
   const s = gridSheet(cards, 2, 24);
   cv.width = s.width; cv.height = s.height; ctx2d(cv).drawImage(s, 0, 0);
   return true;
@@ -202,15 +260,11 @@ export function tvFrame(card: HTMLCanvasElement) {
   X.drawImage(card, x, y, w, h);
   return c;
 }
-// Sampul video: template "Menu" + jenis menu (tulisan tangan) + label site (mis. "Site BCP") dari src/lib/site.ts.
+// Sampul video: template "Menu" + jenis menu (tulisan tangan) + "SITE <nama>" dari Info umum.
 // Penutup: gambar "Selamat Menikmati" apa adanya. Ganti file di public/assets untuk mengubah desain.
 const SCRIPT = '"Ms Madi", "Snell Roundhand", "Brush Script MT", "Segoe Script", "Apple Chancery", cursive';
 const HEAVY = '"Archivo Black", "Arial Black", "Helvetica Neue", Arial, sans-serif';
-const fit = (X: Ctx, t: string, font: (fs: number) => string, fs: number, max: number, min: number, step: number) => {
-  X.font = font(fs);
-  while (X.measureText(t).width > max && fs > min) { fs -= step; X.font = font(fs); }
-};
-export async function tvCover(jenis: string, site: string) {
+export async function tvCover(jenis: string, site: string, brand?: Brand | null) {
   const [bg] = await Promise.all([
     loadSrc("/assets/video-sampul.jpg"),
     document.fonts.load(`400 200px "Ms Madi"`, jenis || "Menu").catch(() => {}),
@@ -219,6 +273,7 @@ export async function tvCover(jenis: string, site: string) {
   const c = document.createElement("canvas"); c.width = TV_W; c.height = TV_H;
   const X = ctx2d(c); X.imageSmoothingQuality = "high";
   X.drawImage(bg, 0, 0, TV_W, TV_H);
+  if (brand) swapLogo(X, brand, LOGO_BOX.video);
   X.textAlign = "center"; X.textBaseline = "middle";
   const j = jenis.trim();
   if (j) {
@@ -226,24 +281,26 @@ export async function tvCover(jenis: string, site: string) {
     fit(X, j, (fs) => `400 ${fs}px ${SCRIPT}`, 300, 1560, 110, 10);
     X.fillText(j, TV_W / 2, 640);
   }
-  const st = site.trim().toUpperCase(); // sudah berupa label lengkap ("Site BCP"), jadi tidak ditambah "Site" lagi
+  const st = ("Site " + site.trim()).toUpperCase();
   X.fillStyle = "#40421A";
   fit(X, st, (fs) => `400 ${fs}px ${HEAVY}`, 150, 1700, 60, 6);
   X.fillText(st, TV_W / 2, 955);
   return c;
 }
-export async function tvEnd() {
+export async function tvEnd(brand?: Brand | null) {
   const bg = await loadSrc("/assets/video-penutup.jpg");
   const c = document.createElement("canvas"); c.width = TV_W; c.height = TV_H;
-  ctx2d(c).drawImage(bg, 0, 0, TV_W, TV_H);
+  const X = ctx2d(c);
+  X.drawImage(bg, 0, 0, TV_W, TV_H);
+  if (brand) swapLogo(X, brand, LOGO_BOX.video);
   return c;
 }
 // Urutan video: sampul, kartu tiap menu (yang punya nama atau foto, sama seperti kolase), penutup.
-export async function tvFrames(items: SlotView[], info: { jenis: string; site: string }) {
+export async function tvFrames(items: SlotView[], info: { jenis: string; site: string }, brand?: Brand | null) {
   const cards: HTMLCanvasElement[] = [];
-  for (const p of items.filter((p) => p.name.trim() || p.img)) cards.push(tvFrame(await landscapeCard(p)));
+  for (const p of items.filter((p) => p.name.trim() || p.img)) cards.push(tvFrame(await landscapeCard(p, brand)));
   if (!cards.length) return [];
-  return [await tvCover(info.jenis, info.site), ...cards, await tvEnd()];
+  return [await tvCover(info.jenis, info.site, brand), ...cards, await tvEnd(brand)];
 }
 
 // ---------- kolase foto ----------

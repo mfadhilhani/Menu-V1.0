@@ -6,7 +6,8 @@ export type Food = { key: string; nama: string; deskripsi: string; kkal: number 
 type Fields = Omit<Food, "key" | "diubah">;
 
 const mockOn = () => process.env.MOCK_BACKEND === "1";
-const g = globalThis as unknown as { __mock?: sheets.Row[]; __cache?: { at: number; rows: sheets.Row[] }; __drafts?: Record<string, sheets.DraftRow> };
+type Kv = Omit<sheets.KvRow, "row">;
+const g = globalThis as unknown as { __mock?: sheets.Row[]; __cache?: { at: number; rows: sheets.Row[] }; __kv?: Record<string, Record<string, Kv>> };
 const now = () => new Date().toISOString();
 const toFood = (r: sheets.Row): Food => ({ key: norm(r.nama), nama: toTitle(r.nama), deskripsi: r.deskripsi, kkal: r.kkal, sumber: r.sumber, status: r.status, diubah: r.diubah, ikon: r.ikon });
 
@@ -65,23 +66,52 @@ export async function deleteFood(key: string): Promise<boolean> {
   return true;
 }
 
-// Draf isian yang disinkronkan antar perangkat (teks saja, tanpa foto), terpisah per site.
-// siteId selalu berasal dari cookie login yang diperiksa server, tidak pernah dari isi permintaan.
-// Aturan: yang terakhir diubah menang; draf dari hari kerja yang lebih baru tidak bisa ditimpa draf hari sebelumnya.
+// ---------- data per site: draf isian dan logo ----------
+// Satu baris per site di tab Sheet (atau di memori server untuk MOCK_BACKEND).
+async function kvGet(tab: string, site: string): Promise<{ row: number | null; cur: Kv | null }> {
+  if (mockOn()) return { row: null, cur: g.__kv?.[tab]?.[site] ?? null };
+  const hit = (await sheets.readKv(tab)).find((r) => r.site === site);
+  return hit ? { row: hit.row, cur: hit } : { row: null, cur: null };
+}
+async function kvPut(tab: string, row: number | null, r: Kv) {
+  if (mockOn()) { g.__kv ??= {}; (g.__kv[tab] ??= {})[r.site] = r; return; }
+  await sheets.writeKv(tab, row, r);
+}
+
+// Draf isian yang disinkronkan antar perangkat pada site yang sama (teks saja, tanpa foto).
+// "at" adalah nomor versi yang diberi server (bukan jam perangkat), jadi jam HP yang salah tidak memengaruhi urutan.
+// Kiriman diterima hanya kalau pengirim sudah melihat versi terakhir (base = versi itu). Kalau belum, server
+// mengembalikan draf terbarunya dan perangkat menggabungkan perubahannya sendiri lalu mengirim ulang.
+// Draf dari hari kerja yang lebih baru tidak bisa ditimpa draf hari sebelumnya.
+// Catatan: baca-lalu-tulis ke Sheet tidak atomik; dua kiriman dalam sepersekian detik yang sama masih bisa saling menimpa.
 export type Draft = { at: number; day: string; device: string; state: Record<string, unknown> };
-const toDraft = (r: sheets.DraftRow | null): Draft | null => {
-  if (!r) return null;
+const toDraft = (r: Kv | null): Draft | null => {
+  if (!r || !r.json) return null;
   try { return { at: r.at, day: r.day, device: r.device, state: JSON.parse(r.json) }; } catch { return null; }
 };
-export async function getDraft(siteId: string): Promise<Draft | null> {
-  if (mockOn()) return toDraft(g.__drafts?.[siteId] ?? null);
-  return toDraft(await sheets.readDraft(siteId));
+export async function getDraft(site: string): Promise<Draft | null> {
+  return toDraft((await kvGet(sheets.DRAFT_TAB(), site)).cur);
 }
-export async function putDraft(siteId: string, d: Draft): Promise<{ ok: boolean; draft: Draft | null }> {
-  const cur = await getDraft(siteId);
-  if (cur && (cur.day > d.day || (cur.day === d.day && cur.at > d.at))) return { ok: false, draft: cur };
-  const row = { at: d.at, day: d.day, device: d.device, json: JSON.stringify(d.state) };
-  if (mockOn()) (g.__drafts ??= {})[siteId] = row;
-  else await sheets.writeDraft(siteId, row);
-  return { ok: true, draft: null };
+export async function putDraft(site: string, d: { base: number; day: string; device: string; state: Record<string, unknown> }): Promise<{ ok: boolean; at?: number; draft: Draft | null }> {
+  const { row, cur: raw } = await kvGet(sheets.DRAFT_TAB(), site);
+  const cur = toDraft(raw);
+  if (cur && (cur.day > d.day || (cur.day === d.day && cur.at !== d.base))) return { ok: false, draft: cur };
+  const at = Math.max(Date.now(), (raw?.at ?? 0) + 1);
+  await kvPut(sheets.DRAFT_TAB(), row, { site, at, day: d.day, device: d.device, json: JSON.stringify(d.state) });
+  return { ok: true, at, draft: null };
+}
+
+// Logo site (gambar kecil sebagai data URL), supaya logo yang diunggah di satu perangkat muncul di perangkat lain
+// pada site yang sama. data kosong = logo dihapus.
+export type Logo = { at: number; data: string };
+export async function getLogo(site: string): Promise<Logo | null> {
+  const { cur } = await kvGet(sheets.LOGO_TAB(), site);
+  return cur ? { at: cur.at, data: cur.json === "-" ? "" : cur.json } : null;
+}
+export async function putLogo(site: string, data: string, device: string): Promise<Logo> {
+  const { row, cur } = await kvGet(sheets.LOGO_TAB(), site);
+  const at = Math.max(Date.now(), (cur?.at ?? 0) + 1);
+  // Sel kosong tidak terbaca sebagai baris, jadi logo yang dihapus ditandai "-".
+  await kvPut(sheets.LOGO_TAB(), row, { site, at, day: "", device, json: data || "-" });
+  return { at, data };
 }

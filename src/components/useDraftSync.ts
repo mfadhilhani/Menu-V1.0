@@ -1,140 +1,150 @@
 "use client";
-// Sinkronisasi isian (teks saja) antar perangkat lewat /api/draft. Foto tidak ikut, tetap di perangkat masing-masing.
+// Sinkronisasi isian (teks saja) antar perangkat pada SITE YANG SAMA lewat /api/draft. Foto poster tidak ikut.
 // Cara kerja:
-// - Isian tetap disimpan di localStorage seperti biasa (cepat dan aman kalau offline).
-// - Saat dibuka, tiap 20 detik selama halaman terlihat, dan saat kembali ke tab ini, perangkat mengambil draf dari server.
-//   Kalau draf server lebih baru (diubah belakangan), isian di perangkat ini diganti dengan draf itu.
-// - Setiap perubahan dikirim ke server 1,5 detik setelah berhenti mengetik, dan langsung saat tab ditutup/diganti.
-// - Yang terakhir diubah menang. Tab yang sedang dibuka (Test Food / Menu & Kalori / Riwayat) tidak ikut disinkronkan.
+// - Isian tetap disimpan di localStorage per site (cepat dan aman kalau offline).
+// - Server menyimpan satu draf per site, dengan nomor versi yang diberi server.
+// - Saat dibuka, tiap 20 detik selama halaman terlihat, dan saat kembali ke tab ini, perangkat menanyakan versi terbaru.
+//   Kalau ada yang lebih baru: diambil. Perubahan di perangkat ini yang belum terkirim digabung per bagian/per baris
+//   (lihat lib/merge.ts), jadi dua orang pada site yang sama tidak saling menimpa selama mengisi baris berbeda.
+// - Setiap perubahan dikirim 1,5 detik setelah berhenti mengetik, dan langsung saat tab disembunyikan/ditutup.
+//   Kiriman menyebut versi yang terakhir dilihat; kalau server sudah punya versi lain, server mengirim balik
+//   drafnya, perangkat menggabungkan, lalu mengirim ulang.
+// - Kalau sinkronisasi dimatikan (enabled = false) atau site belum diberi nama, tidak ada yang dikirim atau diambil.
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { State } from "@/lib/report";
+import { merge3 } from "@/lib/merge";
+import { State, synced } from "@/lib/report";
 import { workDay } from "@/lib/text";
 
-export type SyncStatus = { state: "wait" | "saving" | "ok" | "error"; at: number; device: string };
+export type SyncStatus = { state: "off" | "wait" | "saving" | "ok" | "error"; at: number; device: string };
+// ver = versi server yang terakhir dilihat; base = JSON isian pada versi itu (untuk tahu apa yang berubah di sini).
+export type SyncMeta = { ver: number; base: string };
 type Remote = { at: number; day: string; device: string; state?: Record<string, unknown> };
+type Obj = Record<string, unknown>;
 
-export const synced = (s: State) => {
-  const { tab, ...rest } = s;
-  void tab;
-  return rest;
-};
-const deviceName = () => (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "HP" : "Laptop/PC");
+export const deviceName = () => (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "HP" : "Laptop/PC");
 const POLL = 20000, DEBOUNCE = 1500;
+const parse = (j: string): Obj | null => { try { const o = JSON.parse(j); return o && typeof o === "object" ? (o as Obj) : null; } catch { return null; } };
 
 type Opts = {
   s: State;
   setS: (fn: (p: State) => State) => void;
   loaded: boolean;
   authed: boolean | null;
-  siteId: string;                // site yang sedang dibuka halaman ini (dikirim sebagai X-Site)
-  day: { current: string };      // hari kerja draf ini (diatur saat draf dimuat)
-  at: { current: number };       // waktu perubahan terakhir isian di perangkat ini (0 = belum pernah diubah)
+  enabled: boolean;              // sinkronisasi dinyalakan di perangkat ini
+  site: string;                  // kunci site ("" = belum ada nama: tidak disinkronkan)
+  day: { current: string };      // hari kerja draf ini
+  meta: { current: SyncMeta };   // versi dan isian terakhir yang sama dengan server (disimpan bersama draf lokal)
+  onMeta?: () => void;           // dipanggil setelah meta berubah, supaya ikut tersimpan
   onRemote?: (device: string) => void;
 };
 
-// Server menjawab 409 "site" kalau cookie di browser ini sudah milik site lain (login di tab lain):
-// isian halaman ini tidak dikirim, halaman dimuat ulang mengikuti site baru.
-const siteChanged = async (r: Response) => {
-  if (r.status !== 409) return false;
-  const j = await r.clone().json().catch(() => ({}));
-  if (j.error !== "site") return false;
-  location.reload();
-  return true;
-};
-
-export function useDraftSync({ s, setS, loaded, authed, siteId, day, at, onRemote }: Opts) {
+export function useDraftSync({ s, setS, loaded, authed, enabled, site, day, meta, onMeta, onRemote }: Opts) {
   const [status, setStatus] = useState<SyncStatus>({ state: "wait", at: 0, device: "" });
-  const last = useRef("");        // JSON isian terakhir yang sama dengan server
+  const active = loaded && !!authed && enabled && !!site;
+  const gen = useRef(0);          // naik setiap site/aktif berubah: jawaban permintaan lama diabaikan
   const ready = useRef(false);
   const busy = useRef(false);
-  const sRef = useRef(s);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const cb = useRef(onRemote);
-  sRef.current = s;
-  cb.current = onRemote;
+  const sRef = useRef(s), siteRef = useRef(site), activeRef = useRef(active), cb = useRef(onRemote), cbMeta = useRef(onMeta);
+  sRef.current = s; siteRef.current = site; activeRef.current = active; cb.current = onRemote; cbMeta.current = onMeta;
 
-  const apply = useCallback((r: Remote) => {
+  const localJson = () => JSON.stringify(synced(sRef.current));
+  const setMeta = useCallback((m: SyncMeta) => { meta.current = m; cbMeta.current?.(); }, [meta]);
+
+  // Draf server lebih baru: pakai, sambil mempertahankan perubahan di perangkat ini yang belum terkirim.
+  const take = useCallback((r: Remote) => {
     clearTimeout(timer.current);
-    at.current = r.at;
-    setS((p) => {
-      const next = { ...p, ...(r.state as Partial<State>), tab: p.tab } as State;
-      last.current = JSON.stringify(synced(next));
-      return next;
-    });
-    setStatus({ state: "ok", at: r.at, device: r.device });
-    cb.current?.(r.device);
-  }, [setS, at]);
+    const cur = sRef.current, local = synced(cur) as unknown as Obj;
+    // Disusun dengan urutan kunci isian lokal, supaya perbandingan JSON berikutnya tidak salah karena urutan kunci.
+    const shape = (st: Obj) => synced({ ...cur, ...st, tab: cur.tab, site: cur.site, sxi: cur.sxi } as State) as unknown as Obj;
+    const remote = shape(r.state || {});
+    const dirty = JSON.stringify(local) !== meta.current.base;
+    const next = dirty ? shape(merge3(parse(meta.current.base), local, remote)) : remote;
+    setMeta({ ver: r.at, base: JSON.stringify(remote) });
+    const changed = JSON.stringify(next) !== JSON.stringify(local);
+    if (changed) setS((p) => ({ ...p, ...(next as Partial<State>), tab: p.tab, site: p.site, sxi: p.sxi }));
+    setStatus({ state: JSON.stringify(next) === JSON.stringify(remote) ? "ok" : "saving", at: r.at, device: r.device });
+    if (changed) cb.current?.(r.device);
+    return JSON.stringify(next) !== JSON.stringify(remote); // masih ada perubahan lokal yang perlu dikirim
+  }, [meta, setMeta, setS]);
 
-  const push = useCallback(async (keepalive = false) => {
-    const st = synced(sRef.current), json = JSON.stringify(st);
-    if (json === last.current || at.current <= 0) return;
+  const push = useCallback(async (keepalive = false): Promise<void> => {
+    if (!activeRef.current || (!ready.current && !keepalive)) return;
+    const body = localJson();
+    if (body === meta.current.base) return;
     if (busy.current && !keepalive) { clearTimeout(timer.current); timer.current = setTimeout(() => push(), DEBOUNCE); return; }
+    const g = gen.current;
     busy.current = true;
     setStatus((x) => ({ ...x, state: "saving" }));
-    const sentAt = at.current;
+    let again = false;
     try {
       const r = await fetch("/api/draft", {
-        method: "PUT", keepalive, headers: { "Content-Type": "application/json", "X-Site": siteId },
-        body: JSON.stringify({ at: sentAt, day: day.current, device: deviceName(), state: st }),
+        method: "PUT", keepalive, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: siteRef.current, base: meta.current.ver, day: day.current, device: deviceName(), state: JSON.parse(body) }),
       });
-      if (await siteChanged(r)) return;
-      const j = await r.json().catch(() => ({}));
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; at?: number; draft?: Remote; error?: string };
+      if (g !== gen.current) return;
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      if (j.ok) { last.current = json; setStatus({ state: "ok", at: sentAt, device: deviceName() }); }
-      else if (j.draft && j.draft.day === day.current) apply(j.draft as Remote);   // perangkat lain mengubah lebih belakangan
+      if (j.ok && j.at) { setMeta({ ver: j.at, base: body }); setStatus({ state: "ok", at: j.at, device: deviceName() }); again = localJson() !== body; }
+      else if (j.draft && j.draft.day === day.current) again = take(j.draft);      // perangkat lain mengubah lebih dulu: gabungkan
       else if (j.draft && j.draft.day > day.current && workDay() > day.current) location.reload(); // hari kerja baru
       else setStatus((x) => ({ ...x, state: "ok" }));
     } catch {
-      setStatus((x) => ({ ...x, state: "error" }));
+      if (g === gen.current) setStatus((x) => ({ ...x, state: "error" }));
     } finally {
-      busy.current = false;
+      if (g === gen.current) busy.current = false;
     }
-  }, [apply, at, day, siteId]);
+    if (again && g === gen.current) { clearTimeout(timer.current); timer.current = setTimeout(() => push(), 400); }
+  }, [day, meta, setMeta, take]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pull = useCallback(async () => {
-    if (busy.current) return;
+  const pull = useCallback(async (): Promise<void> => {
+    if (!activeRef.current || busy.current) return;
     if (workDay() > day.current) { location.reload(); return; } // sudah lewat pukul 03.00: mulai hari baru
+    const g = gen.current;
     busy.current = true;
     let r: Remote | null = null, ok = false;
     try {
-      const res = await fetch(`/api/draft?since=${at.current}`, { cache: "no-store", headers: { "X-Site": siteId } });
-      if (await siteChanged(res)) { busy.current = false; return; }
-      const j = await res.json().catch(() => ({}));
-      if (res.ok) { ok = true; r = (j.draft as Remote | null) ?? null; }
+      const res = await fetch(`/api/draft?site=${encodeURIComponent(siteRef.current)}&since=${meta.current.ver}`, { cache: "no-store" });
+      const j = (await res.json().catch(() => ({}))) as { draft?: Remote | null };
+      if (res.ok) { ok = true; r = j.draft ?? null; }
     } catch { /* offline */ }
+    if (g !== gen.current) return;
     busy.current = false;
     if (!ok) { setStatus((x) => ({ ...x, state: "error" })); return; }
-    if (r && r.day === day.current && r.at > at.current && r.state) { apply(r); return; }
-    // Draf server bertanggal lebih baru tapi jam perangkat ini belum lewat 03.00: abaikan (jam perangkat berbeda).
-    if (JSON.stringify(synced(sRef.current)) !== last.current && at.current > 0) { await push(); return; }
-    setStatus((x) => ({ state: "ok", at: x.at || r?.at || 0, device: x.device || r?.device || "" }));
-  }, [apply, push, at, day, siteId]);
+    // Draf server dari hari kerja lain diabaikan (kemarin: akan ditimpa; besok: jam perangkat ini berbeda).
+    if (r && r.day === day.current && r.at !== meta.current.ver && r.state) { if (!take(r)) return; }
+    ready.current = true; // draf server sudah dilihat: sekarang boleh mengirim
+    if (localJson() !== meta.current.base) { await push(); return; }
+    setStatus((x) => ({ state: "ok", at: r?.at || x.at || 0, device: r?.device || x.device || "" }));
+  }, [day, meta, push, take]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ambil draf server sekali saat dibuka, sebelum mengirim apa pun (supaya isian perangkat lain tidak tertimpa).
+  // Mulai (atau mulai ulang saat site berganti / sinkronisasi dinyalakan): ambil draf server dulu sebelum mengirim apa pun.
   useEffect(() => {
-    if (!loaded || !authed || ready.current) return;
+    gen.current++;
+    ready.current = false;
+    busy.current = false;
+    clearTimeout(timer.current);
+    if (!active) { setStatus({ state: enabled && site ? "wait" : "off", at: 0, device: "" }); return; }
+    setStatus({ state: "wait", at: 0, device: "" });
+    const g = gen.current;
     (async () => {
       await pull();
-      // Isian yang belum pernah diubah (draf baru dari pola) tidak dikirim; anggap sudah sama.
-      if (at.current <= 0 && !last.current) last.current = JSON.stringify(synced(sRef.current));
-      ready.current = true;
+      if (g === gen.current) ready.current = true;
     })();
-  }, [loaded, authed, pull, at]);
+  }, [active, site]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Setiap perubahan isian: catat waktunya lalu kirim setelah jeda singkat.
+  // Setiap perubahan isian: kirim setelah jeda singkat.
   useEffect(() => {
-    if (!loaded || !ready.current) return;
-    const json = JSON.stringify(synced(s));
-    if (json === last.current) return;
-    at.current = Date.now();
-    setStatus((x) => ({ ...x, state: "saving" }));
+    if (!active || !ready.current) return;
+    if (JSON.stringify(synced(s)) === meta.current.base) return;
+    setStatus((x) => (x.state === "saving" ? x : { ...x, state: "saving" }));
     clearTimeout(timer.current);
     timer.current = setTimeout(() => push(), DEBOUNCE);
-  }, [s, loaded, push, at]);
+  }, [s, active, push, meta]);
 
   // Cek berkala selama halaman terlihat; kirim langsung saat tab disembunyikan atau ditutup.
   useEffect(() => {
-    if (!loaded || !authed) return;
+    if (!active) return;
     const tick = () => { if (ready.current && document.visibilityState === "visible") pull(); };
     const vis = () => {
       if (!ready.current) return;
@@ -144,8 +154,11 @@ export function useDraftSync({ s, setS, loaded, authed, siteId, day, at, onRemot
     const id = setInterval(tick, POLL);
     document.addEventListener("visibilitychange", vis);
     window.addEventListener("focus", tick);
-    return () => { clearInterval(id); document.removeEventListener("visibilitychange", vis); window.removeEventListener("focus", tick); };
-  }, [loaded, authed, pull, push]);
+    window.addEventListener("online", tick);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", vis); window.removeEventListener("focus", tick); window.removeEventListener("online", tick); };
+  }, [active, pull, push]);
 
-  return { status, syncNow: pull };
+  // flush: kirim sekarang juga (dipakai sebelum pindah site, supaya isian site lama tidak tertinggal).
+  const flush = useCallback(() => { clearTimeout(timer.current); if (ready.current) push(true); }, [push]);
+  return { status, syncNow: pull, flush };
 }

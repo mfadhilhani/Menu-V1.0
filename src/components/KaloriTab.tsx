@@ -9,7 +9,8 @@ import { SortableList } from "./Sortable";
 import CardsSection from "./CardsSection";
 import FotoSection from "./FotoSection";
 import PosterSection from "./PosterSection";
-import { Meal } from "@/lib/canvas";
+import type { Brand } from "@/lib/canvas";
+import type { Ask } from "./Confirm";
 import { Slot } from "@/lib/report";
 import { uid } from "./TestFoodTab";
 
@@ -59,8 +60,8 @@ function Row({ r, handle, upd, del, sync }: { r: KR; handle: React.ReactNode; up
   );
 }
 
-type Props = { s: State; up: (p: Partial<State>) => void; setRows: SetRows; setSlots: (fn: (l: Slot[]) => Slot[]) => void; sync: Sync; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void };
-export default function KaloriTab({ s, up, setRows, setSlots, sync, copy, wa, toast }: Props) {
+type Props = { s: State; up: (p: Partial<State>) => void; setRows: SetRows; setSlots: (fn: (l: Slot[]) => Slot[]) => void; sync: Sync; copy: (t: string) => void; wa: (t: string) => void; toast: (m: string) => void; ns: string; brand: Brand | null; confirm: (a: Ask) => void };
+export default function KaloriTab({ s, up, setRows, setSlots, sync, copy, wa, toast, ns, brand, confirm }: Props) {
   const d = cur(s), pola = s.meal === "Breakfast" || s.meal === "Dinner";
   const upd = (id: string, p: Partial<KR>) => setRows((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
   const info = kaloriInfo(s), report = kaloriReport(s), warna = warnaMessage(s);
@@ -68,7 +69,11 @@ export default function KaloriTab({ s, up, setRows, setSlots, sync, copy, wa, to
     return (
       <section>
         <h2>Menu &amp; Kalori</h2>
-        <p className="hint">Untuk {s.meal} hanya laporan Test Food yang dipakai. Pilih Breakfast atau Dinner di Info umum untuk laporan kalori, poster, dan kolase kode warna.</p>
+        <p className="hint" style={{ marginTop: 0 }}>Untuk {s.meal} hanya laporan Test Food yang dipakai. Laporan kalori, poster, kolase kode warna, dan video tersedia untuk Breakfast dan Dinner.</p>
+        <div className="acts">
+          <button type="button" onClick={() => up({ meal: "Breakfast", mealAuto: false })}>Buka Breakfast</button>
+          <button type="button" onClick={() => up({ meal: "Dinner", mealAuto: false })}>Buka Dinner</button>
+        </div>
       </section>
     );
   }
@@ -78,7 +83,7 @@ export default function KaloriTab({ s, up, setRows, setSlots, sync, copy, wa, to
         <h2>Pengaturan laporan kalori</h2>
         <div className="g">
           <div><label htmlFor="ksite">Kode site laporan</label><input id="ksite" value={s.ksite} onChange={(e) => up({ ksite: e.target.value })} /></div>
-          <div><label htmlFor="camp">Camp</label><input id="camp" value={s.camp} onChange={(e) => up({ camp: e.target.value })} /></div>
+          <div><label htmlFor="camp">Camp (boleh kosong)</label><input id="camp" value={s.camp} onChange={(e) => up({ camp: e.target.value })} /></div>
         </div>
         <div className="note">Waktu makan, tanggal, dan jenis menu mengikuti Info umum di atas.</div>
       </section>
@@ -89,13 +94,17 @@ export default function KaloriTab({ s, up, setRows, setSlots, sync, copy, wa, to
         </SortableList>
         <div className="acts">
           <button className="p" type="button" onClick={() => setRows((l) => [...l, { id: uid(), n: "", kkal: "", gram: "100" }])}>+ Tambah baris</button>
-          <button type="button" onClick={() => setRows(() => Array.from({ length: 6 }, () => ({ id: uid(), n: "", kkal: "", gram: "100" })))}>Kosongkan</button>
+          <button type="button" onClick={() => confirm({
+            title: "Kosongkan daftar makanan?",
+            body: <p>Semua baris Daftar makanan {s.meal} diganti 6 baris kosong. Baris baru tidak lagi terhubung dengan Test Food dan poster. Untuk kembali ke pola, pakai “Mulai baru”.</p>,
+            actions: [{ label: "Ya, kosongkan", kind: "d", run: () => setRows(() => Array.from({ length: 6 }, () => ({ id: uid(), n: "", kkal: "", gram: "100" }))) }],
+          })}>Kosongkan</button>
         </div>
         <div className="note">Di bawah nama: kiri = kkal per 100 g, kanan = porsi (gram). Kalori terisi dari Sheet; kalau kamu mengubah angkanya, Sheet ikut diperbarui. Baris tanpa kalori tidak ikut dijumlahkan. Geser ⠿ untuk memindah urutan.</div>
       </section>
-      {pola && <PosterSection s={s} setSlots={setSlots} sync={sync} toast={toast} />}
+      <PosterSection s={s} setSlots={setSlots} sync={sync} toast={toast} ns={ns} brand={brand} />
       <CardsSection rows={d.rows} toast={toast} />
-      <FotoSection text={report} toast={toast} />
+      <FotoSection text={report} toast={toast} ns={ns} />
       <section>
         <h2>Hasil laporan kalori</h2>
         <textarea id="out" readOnly value={report} />

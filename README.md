@@ -4,26 +4,195 @@ Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, k
 
 ## Catatan perbaikan
 
-### V2.0 Tahap 0–1 (6 November 2026, cabang `feature/menu-v2-development`, belum dirilis)
+### Pembaruan 4 (13 November 2026)
 
-1. **Login per site.** Layar masuk memilih site: BCP, DPS, Kintap Project (hanya yang sudah punya PIN), atau Lainnya (ketik nama site yang didaftarkan admin). Tiap site punya PIN sendiri lewat `SITE_PINS` dan `SITE_CUSTOM` (lihat [Site dan PIN](#site-dan-pin)). `APP_PIN` lama tetap berlaku sebagai PIN BCP, dan cookie login lama tetap diterima sebagai BCP selama PIN BCP masih sama dengan `APP_PIN`, jadi pengguna BCP tidak perlu login ulang. Mengganti PIN BCP mencabut cookie lama itu.
-2. **Isian terpisah per site di server.** Server menentukan site dari cookie login, tidak dari isi permintaan. BCP tetap memakai tab `draf`; site lain memakai tab `draf_<id>` (mis. `draf_dps`) yang dibuat otomatis. Perangkat DPS tidak bisa membaca atau menimpa isian BCP. Kalau satu tab browser login ke site lain, tab lama yang masih terbuka dimuat ulang dan tidak menulis ke site baru. Tab versi lama (sebelum V2.0) yang masih terbuka hanya bisa menulis ke BCP.
-   Kalau draf BCP sebelumnya memakai "Lainnya…" dengan nama site ketikan, aplikasi menampilkan pemberitahuan bahwa laporan sekarang memakai "Site BCP"; site itu perlu didaftarkan di `SITE_CUSTOM` agar punya data sendiri.
-3. **Isian dan foto di perangkat juga per site.** Draf `localStorage` dan foto IndexedDB dipisah per site; BCP memakai kunci lama, jadi isian dan foto yang sudah ada tetap terbaca.
-4. **Satu sumber identitas site** (`src/lib/site.ts`) untuk nama site di laporan Test Food, pesan kode warna, dan sampul video. Kode site laporan dan camp bawaan mengikuti site: BCP "DH BCP" / "Camp Pelangi", DPS "DH DPS", Kintap "DH Kintap", site custom dari `SITE_CUSTOM`. Info umum menampilkan site aktif dengan tombol **Ganti site**.
-5. **Perbaikan bug:** nama site yang diawali "Site" tidak lagi ditulis "Site Site …"; laporan tidak lagi menulis "Site -"; laporan kalori site lain tidak lagi berjudul "DH BCP"; Mulai baru tidak lagi mengembalikan site ke BCP.
-6. **Keamanan:** `AUTH_SECRET` wajib di produksi; mengganti PIN satu site hanya mencabut login site itu; batas PIN salah dihitung per IP dari `X-Real-IP` dan hanya menghitung percobaan gagal (banyak HP di satu Wi-Fi site tidak ikut terkunci).
-7. **Uji otomatis:** `npm test` (Node 22, tanpa paket tambahan) dan uji browser `tests/e2e/site.e2e.mjs`. GitHub Actions di `.github/workflows/ci.yml`. Lihat [docs/TESTING.md](docs/TESTING.md).
+**Status pengujian.** `npm install` tidak bisa dijalankan di lingkungan tempat pembaruan ini dibuat, jadi `npm run build` (Next.js) **belum dijalankan**. Yang sudah diuji: seluruh kode klien dan route API dibundel dengan esbuild dan dijalankan di Chrome ukuran HP dengan server tiruan (mode `MOCK_BACKEND`), termasuk 19 skenario otomatis (sinkron dua perangkat, pindah site, logo, simpanan foto, sinkron mati/nyala, Mulai baru). Yang **belum** diuji: build Next.js asli, Google Sheets asli (termasuk pemindahan tab `draf` lama), drag-and-drop (@dnd-kit diganti tiruan saat uji), video dengan logo site, dan font Google di poster (uji memakai font cadangan). Jalankan `npm install && npm run build` dan coba sekali di HP sebelum dipakai harian.
 
-**Belum selesai di tahap ini:** gambar poster, kartu kode warna, dan video untuk DPS, Kintap, dan site custom masih memakai template BCP (tulisan "BCP" dan logo DH) sampai file template bersih dari desainer tersedia; aplikasi menampilkan peringatan untuk itu. Upload logo custom, mode lokal/cloud, Test Food format baru, dan Info umum per waktu makan menyusul di tahap berikutnya ([CHANGELOG.md](CHANGELOG.md)).
+#### 1. Sinkronisasi per site, bisa dimatikan
 
-**Sebelum merge dan deploy:**
-1. Jalankan `npm install` sekali di komputer yang punya akses internet, lalu commit `package-lock.json`. Lockfile belum memuat `ffmpeg-static`, sehingga `npm ci` (CI dan VPS) gagal.
-2. Pastikan `AUTH_SECRET` terisi (minimal 32 karakter acak) di Environment Variables Production dan Preview. Tanpa itu server menolak login.
-3. Isi `SITE_PINS` (dan `SITE_CUSTOM` bila perlu). Tanpa itu hanya BCP yang aktif, memakai `APP_PIN`.
-4. Uji di Preview: login BCP dengan PIN lama, login DPS dengan PIN DPS, pastikan isian kedua site tidak tercampur.
+- Isian sekarang **satu draf per site**. Perangkat hanya tersinkron dengan perangkat lain yang memilih site yang sama (nama sama; huruf besar kecil tidak dibedakan). Site BCP dan site lain tidak saling memengaruhi.
+- Tombol **Sinkron: nyala/mati** di bilah status. Mematikan memunculkan pop up konfirmasi; setelah itu isian hanya disimpan di perangkat itu (`localStorage`), tidak dikirim dan tidak diambil. Menyalakan lagi juga lewat pop up, dengan dua pilihan: gabungkan isian perangkat dengan server, atau pakai isian server saja.
+- **Tidak lagi "yang terakhir menang" untuk seluruh isian.** Server memberi nomor versi; kiriman dari perangkat yang belum melihat versi terakhir ditolak, lalu perangkat itu menggabungkan perubahannya per bagian dan per baris (`src/lib/merge.ts`) dan mengirim ulang. Dua orang di site yang sama bisa mengisi baris berbeda bersamaan. Kalau baris yang sama diubah dua orang, perangkat yang mengirim belakangan yang dipakai.
+- Urutan tidak lagi bergantung pada jam HP (dulu HP dengan jam lebih maju selalu menang).
+- Pilihan site, tab yang dibuka, dan sinkron nyala/mati milik perangkat masing-masing (tidak ikut tersinkron).
+- Foto poster dan kolase dipisah per site di perangkat yang sama.
+- "Mulai baru" sekarang pop up (bukan klik dua kali), hanya mengosongkan site yang sedang dipilih, dan tidak mereset jenis menu, camp, kode site, zona, dan format.
 
-File baru: `src/lib/site.ts`, `src/lib/token.ts`, `src/app/api/auth/logout/route.ts`, `tests/*`, `.github/workflows/ci.yml`, `CHANGELOG.md`, `docs/DECISIONS.md`, `docs/TESTING.md`. File yang diubah: `src/lib/auth.ts`, `src/lib/sheets.ts`, `src/lib/store.ts`, `src/lib/report.ts`, `src/lib/idb.ts`, `src/lib/canvas.ts`, `src/app/api/auth/route.ts`, `src/app/api/draft/route.ts`, `src/components/App.tsx`, `src/components/FoodsContext.tsx`, `src/components/Login.tsx`, `src/components/PosterSection.tsx`, `src/components/useDraftSync.ts`, `src/app/globals.css`, `package.json`, `.env.example`, `README.md`.
+#### 2. Site "Lainnya": tulisan site dan logo di poster, kolase, dan video
+
+- Pilih **Site → Lainnya…**, ketik nama, tekan **Pakai**. Nama diingat di daftar pilihan perangkat itu.
+- Untuk site selain BCP:
+  - Poster Breakfast: "Kantin BCP" diganti **"Site <nama>"**. Poster Dinner: hiasan "Site BCP" diganti hiasan serupa berisi nama site.
+  - **Logo DH dihilangkan** di poster biasa, kartu kolase kode warna, sampul video, kartu video, dan penutup video.
+  - Muncul **form unggah logo** di Info umum. Logo yang diunggah dipasang di tempat logo DH (kotak putih, logo di tengah). Logo dikecilkan ke 480 px dan ikut tersinkron (tab `logo` di Sheet).
+  - Laporan kalori: "Kode site laporan" bawaannya nama site, dan baris Camp tidak ditulis kalau kosong.
+- Site BCP tidak berubah sama sekali (desain asli).
+- Logo Dire Pratama Services (kiri atas) tetap. Kalau perlu diganti juga, itu belum dikerjakan.
+- Posisi kotak logo dan tulisan ada di `LOGO_BOX`, `brandBreakfast`, `brandDinner` (`src/lib/canvas.ts`). Kalau gambar template diganti, angka di situ perlu disesuaikan.
+
+#### 3. Format Test Food baru (bawaan) + format lama tetap ada
+
+Pilihan di tab Test Food: **Nilai 1-5 (baru)** atau **Keterangan (lama)**.
+
+```
+*Test Food Menu*
+*Jumat, 06 November 2026*
+
+*Menu Breakfast Site BCP*
+1. Nasi Putih : 5
+...
+6. Sambal : 4
+
+Ket:
+* 5 : Baik Sekali
+* 4 : Baik
+* 3 : Cukup
+* 2 : Kurang
+* 1 : Sangat Kurang
+
+Kesimpulan : Makanan layak untuk dikonsumsi
+```
+
+- Nilai dipilih dengan tombol 1-5, **bawaan 5**. Nilai (format baru) dan keterangan (format lama) disimpan terpisah, jadi pindah format tidak menghapus isian.
+- Kesimpulan bawaan mengikuti format (baru: "Makanan layak untuk dikonsumsi"), kecuali sudah kamu ubah sendiri.
+- Keputusan yang saya ambil dan perlu kamu cek: (a) jenis menu hanya ditulis di judul kalau **bukan Reguler** (mis. `*Test Food Menu BBQ*`), karena contohmu tidak memuatnya; (b) nama tetap ditulis Capitalize Each Word ("Nasi Putih"), contohmu "Nasi putih"; (c) hari ditulis "Jumat" di format baru, "Jum’at" di format lama; (d) Snack dan Buah (Dinner), Live Cooking, dan Pukul tetap di posisi yang sama seperti format lama.
+- Kalau ada menu bernilai 2 ke bawah, muncul pengingat di bawah Kesimpulan.
+
+#### 4. Tampilan HP dan kemudahan pakai
+
+- Navigasi tab pindah ke **bawah layar** di HP; di laptop tetap di atas dan menempel saat digulir.
+- Bilah status: site, status sinkron (titik hijau/oranye/merah), tombol Sinkron dan Mulai baru.
+- Kartu **Cara pakai** (4 langkah) saat pertama dibuka; tombol **?** untuk membukanya lagi.
+- **Info umum bisa dilipat**; saat dilipat tampil ringkasan (waktu makan, tanggal, site, jenis menu).
+- Sasaran ketuk minimal 44 px di layar sentuh; pop up tampil sebagai lembar dari bawah; tombol pilih foto besar; kotak poster satu kolom di layar sempit.
+- Untuk Lunch/Supper, tab Menu & Kalori punya tombol langsung ke Breakfast/Dinner.
+- Bisa dipasang di layar utama HP (manifest + ikon `public/icon-192.png`, `icon-512.png`).
+
+#### 5. Ikon makanan
+
+- Kata kunci bertambah (lebih dari 600, termasuk istilah Inggris dan ikan lokal seperti haruan, papuyu, saluang) dan pilihan ikon dikelompokkan (Nasi/mie/roti, Lauk, Sayur, Buah, Kue, Minuman).
+- Aturan pemilihan diganti (`src/lib/icons.ts`): jenis hidangan menang di posisi mana pun; kalau tidak ada, **bahan yang paling depan** di nama yang dipakai; bumbu dan cara masak hanya cadangan. Contoh yang dulu salah: "Ayam Bakar Sambal Matah" (dulu 🌶️, sekarang 🍗), "Udang Saus Telur Asin" (dulu 🥚, sekarang 🦐), "Beef Teriyaki" (dulu 🐟 karena "teri", sekarang 🥩), "Buah Semangka" (🍉).
+- Kerupuk/peyek jadi 🍘. Tahu jadi 🧈 karena emoji tahu tidak ada; kalau kurang cocok, ketuk ikon untuk memilih sendiri.
+
+#### 6. Simpanan foto per nama menu (baru)
+
+Foto yang dipasang di kotak poster disimpan dengan kunci nama menunya dan **dipasang lagi otomatis** saat nama yang sama dipakai di hari lain. Lihat [Foto menu yang muncul lagi](#foto-menu-yang-muncul-lagi).
+
+#### 7. Bug dan hal yang dioptimalkan
+
+| Masalah | Akibat | Perbaikan |
+|---|---|---|
+| Sinkron menimpa seluruh isian ("terakhir menang") | Mengetik di perangkat yang belum sempat mengambil isian terbaru menghapus isian perangkat lain | Versi dari server + gabung per baris |
+| Urutan memakai jam perangkat | HP dengan jam lebih maju selalu menang | Versi diberi server |
+| Perubahan otomatis (waktu makan menurut jam, kalori baris tetap) dihitung sebagai ketikan | Perangkat yang baru dibuka bisa mengirim isiannya dan menimpa yang lain | Perubahan otomatis tidak dihitung sebagai perubahan lokal |
+| Foto kamera disimpan ukuran asli (5-12 MB) | Penyimpanan cepat penuh, poster berat, bisa membuat browser HP tertutup sendiri | Foto dikecilkan ke 1600 px saat dipilih |
+| URL dan bitmap foto tidak pernah dilepas | Memori terus naik saat foto diganti-ganti | Dilepas setelah diganti/dihapus |
+| Foto yang gagal dibaca di kolase diabaikan diam-diam | Pengguna tidak tahu fotonya tidak masuk | Muncul pesan jumlah foto yang gagal |
+| Ikon: awalan kata dicocokkan bebas | "teri" cocok dengan "teriyaki", "tahu" dengan "tahun" | Hanya sama persis atau berakhiran -an/-nya/-s |
+| "Kosongkan" daftar makanan langsung jalan | Sekali salah ketuk, hubungan baris dengan Test Food/poster putus | Pop up konfirmasi |
+| Judul format lama punya spasi sisa kalau jenis menu kosong | `*Test Food Menu *` tidak tebal di WhatsApp | Spasi dibuang |
+| Tanggal tidak valid di draf | Laporan bisa menulis "undefined" | Jatuh ke tanggal hari ini |
+| Pesan toast dipanggil di dalam pembaruan state | Bisa muncul dua kali | Dipindah keluar |
+
+Belum diperbaiki (diketahui): baca-lalu-tulis ke Sheet tidak atomik, jadi dua kiriman dalam sepersekian detik yang sama masih bisa saling menimpa; pembatas percobaan PIN dan kuota AI hanya di memori satu instance server; foto simpanan yang diganti di perangkat lain tidak menggantikan salinan yang sudah ada di perangkat ini.
+
+#### File
+
+Baru: `src/lib/icons.ts`, `src/lib/merge.ts`, `src/lib/local.ts`, `src/lib/logo.ts`, `src/lib/photolib.ts`, `src/lib/photostore.ts`, `src/components/Confirm.tsx`, `src/app/api/logo/route.ts`, `src/app/api/photo/route.ts`, `src/app/manifest.ts`, `public/icon-192.png`, `public/icon-512.png`, `Dockerfile`.
+Diubah: `src/components/App.tsx`, `useDraftSync.ts`, `TestFoodTab.tsx`, `KaloriTab.tsx`, `PosterSection.tsx`, `TfCollage.tsx`, `FotoSection.tsx`, `IconPicker.tsx`, `src/lib/report.ts`, `text.ts`, `canvas.ts`, `sheets.ts`, `store.ts`, `idb.ts`, `photos.ts`, `src/app/api/draft/route.ts`, `src/app/layout.tsx`, `src/app/globals.css`, `.env.example`, `README.md`.
+
+**Setelah deploy:** tidak ada variabel wajib baru. Tab `draf` lama dipindah otomatis ke susunan baru (kolom A = site; isian lama masuk ke site `bcp`), dan tab `logo` dibuat otomatis. Semua perangkat perlu memuat ulang halaman sekali. Opsional: `SHEET_LOGO_TAB`, `PHOTO_DIR`.
+
+## Foto menu yang muncul lagi
+
+**Yang sudah jalan tanpa pengaturan:** foto yang kamu pasang di kotak poster disimpan di browser perangkat itu (IndexedDB, dikecilkan ke 1280 px) dengan kunci nama menu. Besok atau minggu depan, saat nama menu yang sama diisi di poster, fotonya terpasang sendiri dengan keterangan "Dari simpanan foto menu ini". Memasang foto baru untuk menu itu mengganti simpanannya; "Hapus dari simpanan" membuangnya. Batasnya: hanya di perangkat itu, dan hilang kalau data situs di browser dihapus.
+
+**Supaya muncul di semua perangkat**, fotonya harus disimpan di server. Pilihan, dari yang paling mudah:
+
+1. **Folder di server sendiri (sudah didukung).** Kalau web dipindah ke VPS, isi `PHOTO_DIR=/var/lib/tesfood/foto`. Foto dikirim ke `/api/photo` dan disimpan sebagai file JPEG di folder itu, lalu diambil perangkat lain saat menu yang sama dipakai. Tidak perlu layanan tambahan. Cadangkan folder itu sesekali.
+2. **Penyimpanan objek** (Vercel Blob, Cloudflare R2, Supabase Storage) kalau tetap di Vercel. Belum dibuat; yang perlu diganti hanya isi `src/lib/photostore.ts` (tiga fungsi: baca, tulis, hapus).
+3. **Google Drive.** Bisa, tapi paling repot. Akun layanan (service account) yang sekarang dipakai untuk Sheets tidak punya kuota penyimpanan Drive, jadi unggahan ke folder "Drive Saya" yang dibagikan ditolak dengan pesan "Service Accounts do not have storage quota". Jalan keluarnya: (a) **Shared Drive** (butuh Google Workspace, akun layanan dijadikan anggota), atau (b) **OAuth atas nama akunmu** (buat OAuth client, simpan refresh token di server). Setelah itu perlu aktifkan Drive API dan menulis kode unggah/unduh di `photostore.ts`. Saya sarankan pilihan 1 atau 2.
+
+Foto disimpan per nama makanan untuk semua site (data makanan juga dipakai bersama). Kalau sinkronisasi dimatikan, foto tidak dikirim ke server.
+
+## Pindah ke hosting sendiri
+
+Data makanan, draf, dan logo ada di Google Sheet, jadi pindah hosting **tidak memindahkan data**: cukup jalankan kode yang sama dengan variabel lingkungan yang sama.
+
+Syarat hosting: bisa menjalankan **Node.js 20.9 atau lebih baru** sebagai proses yang terus hidup, dan punya **HTTPS**. Hosting PHP/statis saja tidak bisa (web ini punya server: login, Sheets, Gemini, video). Kalau yang kamu maksud hanya memakai domain sendiri, tidak perlu pindah: tambahkan domain di Vercel (Settings → Domains) dan arahkan DNS-nya.
+
+### VPS (Ubuntu), cara yang disarankan
+
+```bash
+# 1. Node.js 22, git, ffmpeg
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs git ffmpeg nginx
+
+# 2. Kode
+sudo mkdir -p /opt/tesfood /var/lib/tesfood/foto && sudo chown $USER /opt/tesfood /var/lib/tesfood/foto
+git clone https://github.com/mfadhilhani/Menu-V1.0.git /opt/tesfood && cd /opt/tesfood
+npm ci
+
+# 3. Variabel lingkungan: salin semua dari Vercel (Settings → Environment Variables)
+cp .env.example .env.local && nano .env.local
+#    tambahkan: PHOTO_DIR=/var/lib/tesfood/foto
+#    kalau video gagal dengan ffmpeg bawaan paket: FFMPEG_PATH=/usr/bin/ffmpeg
+
+# 4. Build dan jalankan
+npm run build
+sudo npm i -g pm2
+pm2 start "npm run start -- -p 3000" --name tesfood && pm2 save && pm2 startup
+```
+
+Nginx sebagai pintu depan (`/etc/nginx/sites-available/tesfood`), lalu HTTPS dengan certbot:
+
+```nginx
+server {
+  server_name menu.domainmu.com;
+  client_max_body_size 12m;            # kiriman kartu video
+  location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 90s;            # pembuatan video
+  }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/tesfood /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx
+sudo apt install -y certbot python3-certbot-nginx && sudo certbot --nginx -d menu.domainmu.com
+```
+
+Hal yang sering terlewat:
+
+- **HTTPS wajib.** Cookie login diberi tanda `secure` di produksi, jadi lewat `http://` login selalu gagal. Menu bagikan gambar ke WhatsApp juga butuh HTTPS.
+- `GOOGLE_PRIVATE_KEY` ditulis satu baris dengan `\n` dan diapit tanda kutip, sama seperti di Vercel.
+- `AUTH_SECRET` boleh sama dengan yang lama (login di HP tetap berlaku) atau diganti (semua perangkat login ulang).
+- Gunakan `X-Forwarded-For $remote_addr` seperti di atas, supaya pembatas percobaan PIN tidak bisa diakali dengan header palsu.
+- Batas 4,5 MB dan 60 detik milik Vercel tidak berlaku lagi; batasnya `client_max_body_size` dan `proxy_read_timeout`.
+- Memperbarui: `cd /opt/tesfood && git pull && npm ci && npm run build && pm2 restart tesfood`.
+
+### Docker
+
+`Dockerfile` disertakan (belum diuji build-nya):
+
+```bash
+docker build -t tesfood .
+docker run -d --name tesfood --restart unless-stopped -p 3000:3000 --env-file .env.local -e PHOTO_DIR=/data/foto -v tesfood-foto:/data/foto tesfood
+```
+
+### cPanel / shared hosting
+
+Hanya bisa kalau ada menu **Setup Node.js App** dengan Node 20+ dan boleh menjalankan proses (`next start`). Banyak shared hosting membatasi memori dan melarang menjalankan ffmpeg, jadi video TV bisa gagal walau bagian lain jalan. Kalau ragu, VPS kecil (1 GB RAM cukup; build lebih nyaman dengan 2 GB) lebih aman.
+
+### Urutan pindah yang aman
+
+1. Pasang di hosting baru dengan Sheet yang sama, buka lewat alamat sementara atau subdomain.
+2. Uji: login, ketik menu (saran dan kalori muncul), sinkron dua perangkat, poster, video, simpan foto.
+3. Arahkan domain ke hosting baru. Vercel boleh tetap hidup beberapa hari sebagai cadangan (keduanya memakai Sheet yang sama; hanya simpanan foto server yang tidak ada di Vercel).
+4. Setelah yakin, hapus atau jeda proyek di Vercel.
 
 ### Pembaruan 3 (5 November 2026)
 
@@ -68,25 +237,30 @@ File yang diubah: `src/lib/text.ts`, `src/lib/gemini.ts`, `src/app/api/foods/res
 | Data | Disimpan di | Terlihat di perangkat lain? |
 |---|---|---|
 | Data makanan (nama, deskripsi, kkal, ikon, status) | Google Sheet, lewat server | Ya. Semua perangkat membaca Sheet yang sama (server menyimpan salinan 60 detik untuk menghemat kuota, jadi perubahan dari perangkat lain bisa terlambat sampai 1 menit). |
-| Isian (Info umum, Test Food, Daftar makanan, teks poster, kesimpulan) | Per site: tab `draf` (BCP) atau `draf_<id>` (site lain) di Google Sheet, plus salinan di `localStorage` browser (kunci `tfm2_draft` untuk BCP, `tfm2_draft:<id>` untuk site lain) | Ya, hanya ke perangkat yang login ke site yang sama. Lihat [Sinkronisasi isian](#sinkronisasi-isian). Besoknya (setelah pukul 03.00) mulai lagi dari pola. |
+| Isian (Info umum, Test Food, Daftar makanan, teks poster, kesimpulan) | Tab `draf` di Google Sheet (satu baris per site), plus salinan di `localStorage` browser (kunci `tfm2_d:<site>`) | Ya, dengan perangkat pada site yang sama, selama sinkronisasi menyala. Lihat [Sinkronisasi isian](#sinkronisasi-isian). Besoknya (setelah pukul 03.00) mulai lagi dari pola. |
+| Pilihan perangkat (site, tab, sinkron nyala/mati, daftar site lain) | `localStorage` browser (kunci `tfm2_prefs`) | Tidak. |
 | Jenis menu yang kamu ketik sendiri | `localStorage` browser (kunci terpisah) | Tidak. |
-| Foto (poster, kolase Test Food, foto laporan kalori) | IndexedDB browser, basis data `tesfoodNext`, dipisah per site | Tidak. Hanya di browser itu, dan dihapus otomatis saat hari kerja berganti (pukul 03.00). |
+| Logo site selain BCP | Tab `logo` di Google Sheet, plus IndexedDB browser | Ya, pada site yang sama. |
+| Foto poster hari ini, kolase Test Food, foto laporan kalori | IndexedDB browser, basis data `tesfoodNext` | Tidak. Hanya di browser itu, dan dihapus otomatis saat hari kerja berganti (pukul 03.00). |
+| Simpanan foto per nama menu | IndexedDB browser (tidak dihapus harian); juga folder `PHOTO_DIR` di server kalau diisi | Hanya kalau `PHOTO_DIR` diisi. Lihat [Foto menu yang muncul lagi](#foto-menu-yang-muncul-lagi). |
 | Poster PNG dan video MP4 | Tidak disimpan di server | Dibuat lalu langsung diunduh atau dibagikan dari perangkat itu. Video disusun di `/api/video` dan dikirim balik tanpa disimpan. |
-| Login | Cookie per browser (30 hari), berisi site dan ditandatangani server | Tidak. Tiap perangkat login sendiri, ke satu site. |
+| Login PIN | Cookie per browser (30 hari) | Tidak. Tiap perangkat login sendiri. |
 
 Jadi makanan dan isian yang diketik di HP muncul di laptop, tapi foto tetap di perangkat tempat foto itu diunggah. `localStorage` saja tidak bisa dipakai untuk sinkronisasi, karena isinya hanya bisa dibaca browser itu sendiri. Karena itu salinan bersamanya disimpan di Sheet, dan `localStorage` tetap dipakai sebagai salinan lokal.
 
 ### Sinkronisasi isian
 
-- Saat web dibuka, perangkat mengambil isian dari Sheet dulu sebelum mengirim apa pun, jadi perangkat yang baru dibuka tidak menimpa isian perangkat lain.
+- Satu draf per site. Perangkat hanya tersinkron dengan perangkat lain yang memilih site yang sama.
+- Saat web dibuka (atau site diganti), perangkat mengambil isian site itu dari Sheet dulu sebelum mengirim apa pun.
 - Setiap perubahan dikirim 1,5 detik setelah berhenti mengetik, dan langsung saat tab disembunyikan atau ditutup.
-- Perangkat lain mengambil isian terbaru tiap 20 detik selama halaman terbuka, dan saat kembali ke tab ini.
-- Kalau dua perangkat mengubah hampir bersamaan, yang terakhir diubah yang dipakai. Isian sebaiknya tidak diketik di dua perangkat pada saat yang sama.
-- Tab yang sedang dibuka (Test Food / Menu & Kalori / Riwayat) tidak ikut, jadi laptop dan HP bisa membuka tab berbeda.
-- Status tampil di atas Info umum: "Tersinkron, terakhir diubah 10.32 dari HP". Kalau offline, isian tetap tersimpan di perangkat itu dan terkirim otomatis saat online lagi (atau tekan "Coba sinkron").
-- Satu draf per site: semua perangkat yang login ke site yang sama memakai draf yang sama. Site diambil server dari cookie login; permintaan dari tab yang membuka site lain ditolak (409) dan tab itu dimuat ulang.
-- Isian disimpan sebagai JSON di baris 2 tab `draf` (BCP) atau `draf_<id>` (site lain): kolom A waktu, B hari, C perangkat, D dan seterusnya isi. Jangan diubah manual.
-- Kuota: tiap perangkat yang terbuka membaca Sheet sekitar 3 kali per menit. Batas Google 60 per menit per pengguna, jadi aman untuk beberapa perangkat.
+- Perangkat lain menanyakan versi terbaru tiap 20 detik selama halaman terbuka, saat kembali ke tab, dan saat online lagi.
+- Kalau dua perangkat mengubah sebelum saling tersinkron, perubahan digabung per bagian dan per baris. Baris yang sama diubah di dua perangkat: yang mengirim belakangan yang dipakai.
+- Tab yang dibuka, site yang dipilih, dan sinkron nyala/mati tidak ikut tersinkron.
+- Status tampil di bilah atas: "Tersinkron 10.32 · HP", "Menyimpan…", "Belum tersinkron (offline?)", atau "Lokal: hanya di perangkat ini". Kalau offline, isian tetap tersimpan di perangkat dan terkirim otomatis saat online lagi.
+- Sinkronisasi bisa dimatikan per perangkat (tombol "Sinkron", dengan pop up konfirmasi).
+- Semua orang yang tahu PIN bisa membuka site mana pun; pemisahan site bukan pembatas akses.
+- Isian disimpan sebagai JSON di tab `draf`: kolom A site, B versi, C hari, D perangkat, E dan seterusnya isi. Jangan diubah manual.
+- Kuota: tiap perangkat yang terbuka membaca Sheet sekitar 3 kali per menit. Batas Google 60 per menit per pengguna, jadi aman sampai sekitar 15 perangkat terbuka bersamaan.
 
 ## Cara kerja nama makanan
 Saat kamu selesai mengetik nama makanan (pindah kolom atau Enter):
@@ -112,24 +286,14 @@ Mengubah kalori di baris Daftar makanan (atau di tab Riwayat) memperbarui Sheet 
 Tab `makanan` (atau isi `SHEET_TAB`). Baris judul dibuat otomatis:
 `key | nama | deskripsi | kkal_100g | sumber | status | diubah | ikon`
 Sheet lama yang belum punya kolom `ikon` diperbarui otomatis (baris judul ditambah, data tidak disentuh).
-Tab draf: `draf` untuk BCP dan `draf_<id site>` untuk site lain (mis. `draf_dps`, `draf_c-tambang-abc`), dibuat otomatis saat site itu pertama kali menyimpan.
 
 ## Menjalankan
-Butuh Node.js 22 (google-auth-library 11.3 meminta Node 22 ke atas; `npm test` memakai fitur TypeScript bawaan Node 22.18+).
 ```bash
 npm install
 cp .env.example .env.local   # isi nilainya
 npm run dev
-npm test                     # uji otomatis, tanpa kredensial
 ```
-Untuk mencoba tanpa kredensial: isi `MOCK_BACKEND=1` di `.env.local` (data sementara di memori server, AI berupa contoh). Tanpa `SITE_PINS`/`APP_PIN`, mode coba terbuka sebagai BCP tanpa login. Jangan dipakai di produksi.
-
-## Site dan PIN
-- Site standar ada di `src/lib/site.ts`: BCP (`bcp`), DPS (`dps`), Kintap Project (`kintap`). Site hanya bisa dipilih kalau punya PIN di `SITE_PINS`, mis. `SITE_PINS={"bcp":"1234","dps":"5678"}`. `APP_PIN` lama dipakai untuk BCP kalau `bcp` tidak diisi.
-- Site lain didaftarkan di `SITE_CUSTOM`, mis. `SITE_CUSTOM=[{"nama":"Site Tambang ABC","pin":"4321","laporan":"ABC","camp":"Camp Utama"}]`. Saat login pengguna memilih **Lainnya** lalu mengetik nama site; huruf besar kecil dan awalan "Site" diabaikan. Daftar site custom tidak pernah ditampilkan di layar login.
-- Konfigurasi yang rusak (bukan JSON, id site tidak dikenal, nama ganda) membuat server menolak permintaan dengan pesan jelas, bukan diam-diam diabaikan.
-- Mengganti PIN satu site hanya membuat perangkat site itu login ulang. Mengganti `AUTH_SECRET` membuat semua site login ulang (termasuk cookie dari versi sebelum V2.0).
-- Katalog makanan (tab `makanan`) tetap satu untuk semua site.
+Untuk mencoba tanpa kredensial: isi `MOCK_BACKEND=1` di `.env.local` (data sementara di memori server, AI berupa contoh). Jangan dipakai di produksi.
 
 ## Menyiapkan Google
 1. Google Cloud Console: buat project, aktifkan **Google Sheets API**, buat **Service Account**, buat key JSON.
@@ -144,10 +308,7 @@ Catatan: paket Hobby dibatasi untuk pemakaian pribadi nonkomersial; cek ketentua
 Video TV memakai paket `ffmpeg-static` (terpasang lewat `npm install`); `next.config.mjs` sudah mengatur supaya program ffmpeg ikut ke fungsi `/api/video`. Batas Vercel: kiriman dan jawaban maks. 4,5 MB per permintaan (kartu dikompres otomatis; video kartu diam biasanya di bawah 1 MB) dan waktu fungsi maks. 60 detik. Di server sendiri (VPS) cukup `npm install`, atau isi `FFMPEG_PATH` kalau sudah ada ffmpeg.
 
 ## Keamanan
-- Semua route `/api/*` (kecuali login) butuh login PIN site (`SITE_PINS`/`SITE_CUSTOM`/`APP_PIN`), dengan cookie `httpOnly` bertanda tangan memakai `AUTH_SECRET`. `AUTH_SECRET` wajib di produksi (minimal 32 karakter acak).
-- Data isian dipisah per site di server; site selalu diambil dari cookie yang ditandatangani, tidak dari isi permintaan.
-- Batas PIN salah: 10 kali per 10 menit per IP (IP dari `X-Real-IP` yang diisi proxy). Login yang berhasil tidak dihitung; permintaan yang dikirim bersamaan tetap terhitung satu per satu. Di server sendiri, aplikasi wajib di belakang Nginx dengan `proxy_set_header X-Real-IP $remote_addr;` dan port Node tidak dibuka ke internet; tanpa itu IP bisa dipalsukan dan batas ini tidak berarti.
-- Kesalahan konfigurasi `SITE_PINS`/`SITE_CUSTOM` hanya dijelaskan di log server; pengguna melihat pesan umum (nama site custom tidak bocor).
+- Semua route `/api/*` (kecuali login) butuh login PIN (`APP_PIN`, cookie `httpOnly` bertanda tangan memakai `AUTH_SECRET`). Isi `AUTH_SECRET` dengan teks acak panjang.
 - Batas panggilan AI per hari (`AI_DAILY_LIMIT`) dihitung di memori tiap instance server, jadi hanya pembatas kasar. Pasang juga batas biaya/kuota di Google AI Studio.
 - Kuota Google Sheets: 300 baca/menit per project dan 60/menit per pengguna; akun layanan dihitung satu pengguna. Karena itu isi Sheet di-cache 60 detik di server.
 
@@ -170,7 +331,7 @@ Draf dari hari kerja sebelumnya (berganti pukul 03.00) memulai lagi dari pola (m
 Di tab Test Food, centang "Tampilkan Pukul" untuk menambah baris `*Pukul : 10.34 WITA*` tepat di bawah tanggal. Jam terisi dari jam sekarang saat dicentang dan bisa diubah; zona waktu WIB/WITA/WIT bisa dipilih (bawaan WITA). Hanya berlaku di laporan Test Food.
 
 ## Ikon makanan
-Ikon di daftar makanan dipilih otomatis dari nama (lebih dari 100 kata kunci; jenis hidangan didahulukan atas bahan, mis. "Mie Ayam" = 🍜). Ketuk ikon untuk memilih sendiri dari kisi emoji atau mengetik emoji; pilihan itu disimpan di kolom `ikon` Sheet dan dipakai lagi saat nama yang sama diketik. Bisa juga diubah di tab Riwayat.
+Ikon di daftar makanan dipilih otomatis dari nama (aturan dan kata kunci di `src/lib/icons.ts`; jenis hidangan didahulukan atas bahan, mis. "Mie Ayam" = 🍜). Ketuk ikon untuk memilih sendiri dari kisi emoji atau mengetik emoji; pilihan itu disimpan di kolom `ikon` Sheet dan dipakai lagi saat nama yang sama diketik. Bisa juga diubah di tab Riwayat.
 
 ## Poster dan kolase
 Semua fitur poster dan kolase dari versi HTML sudah ada:
@@ -179,7 +340,7 @@ Semua fitur poster dan kolase dari versi HTML sudah ada:
 - **Video untuk TV (MP4)**: tombol "Buat video TV" di bawah poster. Urutan: sampul (`public/assets/video-sampul.jpg` + jenis menu dan "SITE ..." dari Info umum, font Ms Madi dan Archivo Black), kartu landscape tiap menu, lalu penutup `public/assets/video-penutup.jpg` ("Selamat Menikmati"). Tiap gambar tampil 5 detik dengan transisi halus, 1920×1080, 25 fps, H.264 + audio senyap (diputar TV, HP, dan WhatsApp). Kartu digambar di HP, lalu MP4 disusun di server dengan ffmpeg (`/api/video`), jadi hasilnya sama di iPhone dan Android. Setelah jadi: putar untuk cek, lalu "Unduh video" atau "Simpan ke Galeri / bagikan". Maksimal 10 gambar per video (sampul + 8 menu + penutup).
 - **Kode warna makanan**: kartu per baris Daftar makanan, unduh satu per satu atau semua jadi satu gambar.
 - **Foto untuk laporan kalori** dan **Kolase foto Test Food**: unggah foto, kolase otomatis, unduh atau kirim ke WhatsApp bersama teks.
-- **Mulai baru** mengembalikan isian ke pola di semua perangkat dan menghapus foto di browser ini (data makanan di Sheet tidak tersentuh).
+- **Mulai baru** mengembalikan isian site yang dipilih ke pola (di semua perangkat site itu kalau sinkronisasi menyala) dan menghapus foto poster/kolase site itu di browser ini. Data makanan, logo, dan simpanan foto menu tidak tersentuh.
 
 Catatan:
 - Gambar template ada di `public/assets/` (poster Breakfast dan Dinner, kartu landscape, logo, wajah kartu). Ganti file dengan nama yang sama untuk mengubah desain.

@@ -1,81 +1,69 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fillMealPattern, initMD } from "@/lib/pattern";
-import { KR, MealData, MealKey, Slot, State, Sync, TF } from "@/lib/report";
+import type { Brand } from "@/lib/canvas";
 import { idbClear } from "@/lib/idb";
+import { DEFAULT_PREFS, initState, loadDraft, loadPrefs, Prefs, saveDraft, savePrefs } from "@/lib/local";
+import { useSiteLogo } from "@/lib/logo";
 import { JENIS } from "@/lib/options";
-import { STANDARD, type Site } from "@/lib/site";
+import { setPhotoServer } from "@/lib/photolib";
+import { DEFAULT_SITE, isDefaultSite, KR, KS, MealData, MealKey, siteKey, siteName, Slot, State, Sync, synced, TF } from "@/lib/report";
+import { dateParts, mealByHour, norm, pad, workDay } from "@/lib/text";
 import ComboInput from "./ComboInput";
-import { mealByHour, norm, pad, todayStr, workDay } from "@/lib/text";
+import Confirm, { Ask } from "./Confirm";
 import { useFoods } from "./FoodsContext";
 import KaloriTab from "./KaloriTab";
 import Login from "./Login";
 import RiwayatTab from "./RiwayatTab";
 import TestFoodTab from "./TestFoodTab";
-import { useDraftSync } from "./useDraftSync";
+import { SyncMeta, useDraftSync } from "./useDraftSync";
 
-// Draf lokal per site. BCP tetap memakai kunci lama supaya isian yang sudah ada di perangkat tidak hilang.
-const draftKey = (siteId: string) => (siteId === "bcp" ? "tfm2_draft" : `tfm2_draft:${siteId}`);
-// Nilai awal isian. Nama site, kode site laporan, dan camp mengikuti site yang sedang login.
-const init = (site: Site = STANDARD[0]): State => ({
-  tab: "tf", pukul: false, jam: "", zona: "WITA", mealAuto: true, jn: "Reguler", live: false, liveMenu: "", dt: "", meal: "Breakfast", site: site.nama, sxi: "",
-  ks: "Makanan dalam kondisi layak untuk dikonsumsi",
-  ksite: site.laporan, camp: site.camp, rule: true,
-  md: initMD(),
-});
+const TABS: [State["tab"], string, string][] = [["tf", "Test Food", "📝"], ["kal", "Menu & Kalori", "🍽️"], ["his", "Riwayat", "📚"]];
 
 export default function App() {
-  const { authed, mock, openMode, loadError, reload, foods, site, logout } = useFoods();
-  const [s, setS] = useState<State>(() => init());
+  const { authed, mock, loadError, reload, foods } = useFoods();
+  const [s, setS] = useState<State>(() => initState(DEFAULT_SITE, ""));
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [loaded, setLoaded] = useState(false);
   const [msg, setMsg] = useState("");
-  const [sure, setSure] = useState(false);
-  // Draf V1 yang memakai "Lainnya…" + nama site ketikan: sejak V2.0 site mengikuti login, jadi pengguna diberi tahu.
-  const [legacySite, setLegacySite] = useState("");
+  const [ask, setAsk] = useState<Ask | null>(null);
+  const [adding, setAdding] = useState(false);   // sedang mengetik nama site baru
+  const [newSite, setNewSite] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const day = useRef(workDay());   // hari kerja draf ini (berganti pukul 03.00)
-  const at = useRef(0);            // waktu isian terakhir diubah (untuk sinkronisasi antar perangkat)
+  const day = useRef(workDay());                 // hari kerja draf ini (berganti pukul 03.00)
+  const meta = useRef<SyncMeta>({ ver: 0, base: "" });
+  const sRef = useRef(s);
   const resetting = useRef(false);
+  sRef.current = s;
 
-  // Muat draf terakhir site ini, setelah site aktif diketahui dari login.
-  // Draf dari hari kerja sebelumnya memulai ulang dari pola (menu kemarin tidak terbawa),
-  // tapi pengaturan seperti jenis menu dan camp tetap dipakai.
-  const siteId = site?.id;
+  // Muat pilihan perangkat (site, tab, sinkronisasi) lalu isian site itu.
   useEffect(() => {
-    if (!site || loaded) return;
-    const base = { ...init(site), dt: todayStr() };
-    try {
-      const d = JSON.parse(localStorage.getItem(draftKey(site.id)) || "null");
-      if (d && d.v === 1 && d.state) {
-        const stale = !d.day || d.day < workDay();
-        at.current = stale ? 0 : Number(d.at) || 0;
-        // Daftar lama (sebelum ada pola) dibuang.
-        const { menu, snack, buah, rows, pb, pd, ...rest } = d.state as Record<string, unknown>;
-        void menu; void snack; void buah; void rows; void pb; void pd;
-        const md = rest.md ? fillMealPattern(rest.md as State["md"]) : initMD();
-        const typed = rest.site === "__x" ? String(rest.sxi ?? "").trim() : "";
-        if (typed && typed.toLowerCase() !== site.nama.toLowerCase()) setLegacySite(typed);
-        setS({ ...base, ...rest, md, site: site.nama, sxi: "", dt: !stale && (rest.dt as string) ? (rest.dt as string) : todayStr(), ...(stale ? { mealAuto: true, pukul: false, jam: "", live: false, liveMenu: "", md: initMD() } : {}) } as State);
-        setLoaded(true);
-        return;
-      }
-    } catch { /* abaikan draf rusak */ }
-    setS(base);
+    const p = loadPrefs();
+    const d = loadDraft(p.site, p.sxi, p.tab);
+    meta.current = d.meta;
+    setPhotoServer(p.sync);
+    setPrefs(p);
+    setS(d.state);
+    setAdding(p.site === "__x" && !p.sxi.trim());
     setLoaded(true);
-  }, [site, loaded]);
+  }, []);
+  // Simpan isian ke perangkat ini (per site) setiap berubah, dan langsung saat tab disembunyikan/ditutup.
+  const persist = useCallback(() => { if (!resetting.current) saveDraft(sRef.current, day.current, meta.current); }, []);
   useEffect(() => {
-    if (!loaded || !siteId || resetting.current) return;
-    const t = setTimeout(() => { try { localStorage.setItem(draftKey(siteId), JSON.stringify({ v: 1, day: day.current, at: at.current, state: s })); } catch { /* penuh */ } }, 300);
+    if (!loaded) return;
+    const t = setTimeout(persist, 300);
     return () => clearTimeout(t);
-  }, [s, loaded, siteId]);
-  // Nama site di isian selalu mengikuti login (juga setelah isian dari perangkat lain diterapkan).
+  }, [s, loaded, persist]);
   useEffect(() => {
-    if (!loaded || !site || (s.site === site.nama && !s.sxi)) return;
-    setS((p) => ({ ...p, site: site.nama, sxi: "" }));
-  }, [loaded, site, s.site, s.sxi]);
+    if (!loaded) return;
+    const f = () => { if (document.visibilityState === "hidden") persist(); };
+    document.addEventListener("visibilitychange", f);
+    window.addEventListener("pagehide", persist);
+    return () => { document.removeEventListener("visibilitychange", f); window.removeEventListener("pagehide", persist); };
+  }, [loaded, persist]);
+  useEffect(() => { if (loaded) savePrefs({ ...prefs, tab: s.tab, site: s.site, sxi: s.sxi }); }, [loaded, prefs, s.tab, s.site, s.sxi]);
 
   const up = useCallback((p: Partial<State>) => setS((x) => ({ ...x, ...p })), []);
-  const setMD = useCallback((fn: (d: MealData, m: MealKey) => MealData) => setS((x) => { const m = x.meal as MealKey; return { ...x, md: { ...x.md, [m]: fn(x.md[m], m) } }; }), []);
+  const setMD = useCallback((fn: (d: MealData, m: MealKey) => MealData) => setS((x) => { const m = (x.meal in x.md ? x.meal : "Breakfast") as MealKey; return { ...x, md: { ...x.md, [m]: fn(x.md[m], m) } }; }), []);
   const setList = useCallback((k: "menu" | "snack" | "buah") => (fn: (l: TF[]) => TF[]) => setMD((d) => ({ ...d, [k]: fn(d[k]) })), [setMD]);
   const setSlots = useCallback((fn: (l: Slot[]) => Slot[]) => setMD((d) => ({ ...d, slots: fn(d.slots) })), [setMD]);
   const setRows = useCallback((fn: (l: KR[]) => KR[]) => setMD((d) => ({ ...d, rows: fn(d.rows) })), [setMD]);
@@ -105,35 +93,110 @@ export default function App() {
       slots: d.slots.map((r) => (r.sid === sid ? { ...r, kkal: v } : r)),
     })),
   }), [setMD]);
-  const toast = useCallback((m: string) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(""), 2800); }, []);
-  // Isian teks tersinkron antar perangkat (foto tidak ikut).
+  const toast = useCallback((m: string) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(""), 3200); }, []);
+
+  // ---------- site dan sinkronisasi ----------
+  const key = siteKey(s), bcp = isDefaultSite(s), name = siteName(s);
+  const ns = bcp || !key ? "" : key + "|";         // awalan kunci foto, supaya foto tiap site tidak tercampur di perangkat ini
   const onRemote = useCallback((dev: string) => toast(`Isian diperbarui dari ${dev || "perangkat lain"}`), [toast]);
-  const { status: syncSt, syncNow } = useDraftSync({ s, setS, loaded, authed, siteId: siteId || "", day, at, onRemote });
+  const { status: syncSt, syncNow, flush } = useDraftSync({ s, setS, loaded, authed, enabled: prefs.sync, site: key, day, meta, onMeta: persist, onRemote });
+  const logo = useSiteLogo(bcp ? "" : key, prefs.sync && !!authed);
+  const brand = useMemo<Brand | null>(() => (bcp ? null : { site: name, logo: logo.img }), [bcp, name, logo.img]);
+
+  // Pindah site: isian site lama disimpan (dan dikirim), lalu isian site baru dimuat dari perangkat ini dan dari server.
+  const switchSite = useCallback((site: string, sxi: string) => {
+    const cur = sRef.current;
+    if (siteKey(cur) === siteKey({ site, sxi })) { setS((p) => ({ ...p, site, sxi })); return; }
+    saveDraft(cur, day.current, meta.current);
+    flush();
+    const d = loadDraft(site, sxi, cur.tab);
+    meta.current = d.meta;
+    setS(() => d.state);
+  }, [flush]);
+  const applyNewSite = () => {
+    const v = newSite.replace(/\s+/g, " ").trim();
+    if (v.length < 2) { toast("Ketik nama site dulu (minimal 2 huruf)"); return; }
+    setAdding(false); setNewSite("");
+    if (norm(v) === norm(DEFAULT_SITE)) { switchSite(DEFAULT_SITE, ""); return; }
+    setPrefs((p) => (p.sites.some((x) => norm(x) === norm(v)) ? p : { ...p, sites: [...p.sites, v].slice(-20) }));
+    switchSite("__x", v);
+    toast(`Site ${v} dipakai`);
+  };
+  const forgetSite = () => setAsk({
+    title: `Hapus site ${name} dari daftar?`,
+    body: <p>Site ini hilang dari pilihan di perangkat ini dan kamu kembali ke site {DEFAULT_SITE}. Isian dan logo yang sudah tersinkron tetap ada di server.</p>,
+    actions: [{ label: "Ya, hapus dari daftar", kind: "d", run: () => { setPrefs((p) => ({ ...p, sites: p.sites.filter((x) => norm(x) !== norm(name)) })); switchSite(DEFAULT_SITE, ""); } }],
+  });
+  const setSync = (on: boolean, discardLocal = false) => {
+    if (!on) flush();
+    if (on && discardLocal) {
+      // Buang perubahan perangkat ini: kembali ke isian terakhir yang sama dengan server, lalu ambil yang terbaru.
+      let last: Partial<State> | null = null;
+      try { last = meta.current.base ? (JSON.parse(meta.current.base) as Partial<State>) : null; } catch { last = null; }
+      if (last) { const b = last; setS((p) => ({ ...p, ...b, tab: p.tab, site: p.site, sxi: p.sxi })); }
+      else meta.current = { ...meta.current, base: JSON.stringify(synced(sRef.current)) };
+    }
+    setPhotoServer(on);
+    setPrefs((p) => ({ ...p, sync: on }));
+    toast(on ? "Sinkronisasi dinyalakan" : "Sinkronisasi dimatikan. Isian hanya disimpan di perangkat ini.");
+  };
+  const askSync = () => setAsk(prefs.sync
+    ? {
+      title: "Matikan sinkronisasi?",
+      body: <>
+        <p>Isian hanya disimpan di <b>perangkat ini</b> (penyimpanan lokal). Perangkat lain di site {name} tidak menerima perubahanmu, dan kamu tidak menerima perubahan mereka.</p>
+        <p>Isian yang sudah tersinkron tetap ada di server. Data makanan (kalori, ikon) tetap dipakai bersama.</p>
+      </>,
+      actions: [{ label: "Ya, simpan di perangkat ini saja", kind: "p", run: () => setSync(false) }],
+    }
+    : {
+      title: `Nyalakan sinkronisasi site ${name}?`,
+      body: <>
+        <p>Isian perangkat ini digabung dengan isian site {name} di server: bagian yang kamu ubah di sini dipertahankan, sisanya mengikuti server.</p>
+        <p>Setelah itu perubahan terkirim otomatis ke semua perangkat di site yang sama.</p>
+      </>,
+      actions: [
+        { label: "Nyalakan dan gabungkan", kind: "p", run: () => setSync(true) },
+        { label: "Nyalakan, pakai isian server saja", run: () => setSync(true, true) },
+      ],
+    });
+
   const hm = (t: number) => { const d = new Date(t); return `${pad(d.getHours())}.${pad(d.getMinutes())}`; };
   const syncText =
-    syncSt.state === "saving" ? "Menyimpan ke semua perangkat…"
-    : syncSt.state === "error" ? "Belum tersinkron (offline?). Isian tetap aman di perangkat ini."
-    : syncSt.state === "ok" && syncSt.at ? `Tersinkron, terakhir diubah ${hm(syncSt.at)}${syncSt.device ? ` dari ${syncSt.device}` : ""}`
+    !prefs.sync ? "Lokal: hanya di perangkat ini"
+    : !key ? "Isi nama site untuk mulai sinkron"
+    : syncSt.state === "saving" ? "Menyimpan…"
+    : syncSt.state === "error" ? "Belum tersinkron (offline?)"
+    : syncSt.state === "ok" && syncSt.at ? `Tersinkron ${hm(syncSt.at)}${syncSt.device ? ` · ${syncSt.device}` : ""}`
     : syncSt.state === "ok" ? "Tersinkron" : "Menyinkronkan…";
+  const syncCls = !prefs.sync || !key ? "off" : syncSt.state === "error" ? "bad" : syncSt.state === "ok" ? "ok" : "wait";
+
+  // Perubahan otomatis (waktu makan menurut jam, kalori baris tetap dari Sheet) bukan ketikan pengguna.
+  // Kalau isian belum punya perubahan yang belum terkirim, perubahan otomatis tidak dihitung sebagai perubahan lokal,
+  // supaya perangkat yang baru dibuka tidak menimpa pilihan perangkat lain hanya karena jamnya berjalan.
+  const autoSet = useCallback((fn: (x: State) => State) => {
+    const cur = sRef.current, next = fn(cur);
+    if (next === cur) return false;
+    if (JSON.stringify(synced(cur)) === meta.current.base) meta.current = { ...meta.current, base: JSON.stringify(synced(next)) };
+    sRef.current = next;
+    setS(() => next);
+    return true;
+  }, []);
   // Waktu makan mengikuti jam selama "otomatis" aktif; memilih manual mematikannya.
   useEffect(() => {
     if (!loaded || !s.mealAuto) return;
     const tick = () => {
       const m = mealByHour(new Date().getHours());
-      setS((p) => {
-        if (p.meal === m) return p;
-        toast("Waktu makan otomatis: " + m);
-        return { ...p, meal: m };
-      });
+      if (autoSet((x) => (x.meal === m || !x.mealAuto ? x : { ...x, meal: m }))) toast("Waktu makan otomatis: " + m);
     };
     tick();
     const id = setInterval(tick, 30000);
     return () => clearInterval(id);
-  }, [loaded, s.mealAuto, toast]);
+  }, [loaded, s.mealAuto, key, toast, autoSet]);
   // Baris tetap (Nasi Putih, Sambal, dst) mengambil kalori dari Sheet begitu datanya ada.
   useEffect(() => {
     if (!loaded || !foods.length) return;
-    setS((x) => {
+    autoSet((x) => {
       let ch = false;
       const md = { ...x.md };
       (["Breakfast", "Dinner"] as MealKey[]).forEach((m) => {
@@ -150,33 +213,57 @@ export default function App() {
       });
       return ch ? { ...x, md } : x;
     });
-  }, [loaded, foods]);
+  }, [loaded, foods, key, s.md, autoSet]);
   const copy = useCallback(async (t: string) => { try { await navigator.clipboard.writeText(t); toast("Teks disalin"); } catch { toast("Gagal menyalin, salin manual"); } }, [toast]);
-  const wa = useCallback((t: string) => { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); }, []);
+  const wa = useCallback((t: string) => { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank", "noopener"); }, []);
 
-  // Mulai baru: isian site ini kembali ke pola di semua perangkat site ini (lewat sinkronisasi),
-  // foto site ini di perangkat ini dihapus. Site, kode site laporan, dan camp kembali ke bawaan site (bukan ke BCP).
-  const reset = async () => {
-    if (!site) return;
-    if (!sure) { setSure(true); setTimeout(() => setSure(false), 4000); return; }
+  // Mulai baru: isian site ini kembali ke pola (di semua perangkat kalau sinkronisasi menyala), foto site ini di perangkat ini dihapus.
+  // Pengaturan (jenis menu, camp, kode site, zona, format) tidak ikut direset.
+  const doReset = async () => {
+    const cur = sRef.current;
     resetting.current = true;
-    at.current = 0; // hentikan pengiriman isian lama
-    try { localStorage.setItem(draftKey(site.id), JSON.stringify({ v: 1, day: workDay(), at: Date.now(), state: { ...init(site), dt: todayStr() } })); } catch { /* abaikan */ }
-    await idbClear();
+    const fresh: State = { ...initState(cur.site, cur.sxi), tab: cur.tab, jn: cur.jn, zona: cur.zona, ksite: cur.ksite, camp: cur.camp, rule: cur.rule, tfFmt: cur.tfFmt, ks: KS[cur.tfFmt === 1 ? 1 : 2] };
+    saveDraft(fresh, workDay(), meta.current); // "base" tidak diubah, jadi setelah dimuat ulang pola ini terkirim sebagai perubahan
+    await idbClear(ns);
     location.reload();
   };
-  const tabs: [State["tab"], string][] = [["tf", "Test Food"], ["kal", "Menu & Kalori"], ["his", "Riwayat"]];
+  const askReset = () => setAsk({
+    title: "Mulai baru?",
+    body: <>
+      <p>Semua isian hari ini untuk site {name} (semua waktu makan) dikosongkan dan kembali ke pola{prefs.sync && key ? <> <b>di semua perangkat site ini</b></> : " di perangkat ini"}.</p>
+      <p>Foto poster dan kolase di perangkat ini ikut dihapus. Data makanan, simpanan foto menu, dan logo tidak dihapus.</p>
+    </>,
+    actions: [{ label: "Ya, kosongkan", kind: "d", run: doReset }],
+  });
+
+  const p = dateParts(s.dt, true);
+  const summary = `${s.meal} · ${p.hari}, ${pad(p.d)} ${p.m.slice(0, 3)} · Site ${name} · ${s.jn.trim() || "-"}`;
+  const siteVal = adding ? "__new" : s.site === "__x" ? "x:" + s.sxi : DEFAULT_SITE;
+  const pickSite = (v: string) => {
+    if (v === "__new") { setAdding(true); return; }
+    setAdding(false);
+    if (v === DEFAULT_SITE) switchSite(DEFAULT_SITE, ""); else switchSite("__x", v.slice(2));
+  };
+  const customSites = [...prefs.sites, ...(s.site === "__x" && s.sxi && !prefs.sites.some((x) => norm(x) === norm(s.sxi)) ? [s.sxi] : [])];
+
   return (
     <>
       <header>
         <div className="hi">
-          <h1>Tes<span>food</span></h1>
-          <p className="sub">Test food, menu kalori, dan data makanan dalam satu tempat.</p>
-          <nav className="tabs">
-            {tabs.map(([k, t]) => (
-              <button key={k} type="button" className={"tb" + (s.tab === k ? " on" : "")} onClick={() => up({ tab: k })}>{t}</button>
-            ))}
-          </nav>
+          <div className="brandrow">
+            <h1>Tes<span>food</span></h1>
+            {authed && <button type="button" className="helpb" aria-label="Cara pakai" onClick={() => setPrefs((x) => ({ ...x, help: !x.help }))}>?</button>}
+          </div>
+          <p className="sub">Test food, menu kalori, poster, dan data makanan dalam satu tempat.</p>
+          {authed && (
+            <nav className="tabs" aria-label="Halaman">
+              {TABS.map(([k, t, e]) => (
+                <button key={k} type="button" className={"tb" + (s.tab === k ? " on" : "")} aria-current={s.tab === k ? "page" : undefined} onClick={() => { up({ tab: k }); window.scrollTo({ top: 0 }); }}>
+                  <span className="te" aria-hidden="true">{e}</span><span>{t}</span>
+                </button>
+              ))}
+            </nav>
+          )}
         </div>
       </header>
       <main>
@@ -185,66 +272,111 @@ export default function App() {
           <section>
             <h2>Data belum bisa dimuat</h2>
             <p className="err">{loadError}</p>
-            <p className="hint">Periksa pengaturan di .env.local (lokal) atau Environment Variables (Vercel), lalu coba lagi.</p>
+            <p className="hint">Periksa koneksi internet. Kalau baru memasang: periksa pengaturan di .env.local atau Environment Variables server, lalu coba lagi.</p>
             <div className="acts"><button className="p" type="button" onClick={() => reload()}>Coba lagi</button></div>
           </section>
         )}
         {authed === false && <Login />}
         {authed && (
           <>
-            <div className="note" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "0 0 12px" }}>
-              <span>Isian tersimpan otomatis dan tersinkron ke perangkat lain di site {site?.nama}; foto hanya di perangkat ini dan terhapus otomatis besok (pukul 03.00).</span>
-              <span className={syncSt.state === "error" ? "err" : "hint"} style={{ margin: 0 }} role="status">{syncText}</span>
-              {syncSt.state === "error" && <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => syncNow()}>Coba sinkron</button>}
-              <button type="button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={reset}>{sure ? "Yakin? Klik lagi: isian di semua perangkat kembali ke pola" : "Mulai baru"}</button>
+            <div className="statbar">
+              <span className="chip site">Site {name}</span>
+              <span className={"chip sync " + syncCls} role="status">{syncText}</span>
+              {prefs.sync && !!key && syncSt.state === "error" && <button type="button" className="mini" onClick={() => syncNow()}>Coba sinkron</button>}
+              <span className="grow" />
+              <button type="button" className="mini" aria-pressed={prefs.sync} onClick={askSync}>{prefs.sync ? "Sinkron: nyala" : "Sinkron: mati"}</button>
+              <button type="button" className="mini" onClick={askReset}>Mulai baru</button>
             </div>
+            {prefs.help && (
+              <section className="help">
+                <h2>Cara pakai</h2>
+                <ol>
+                  <li><b>Cek Info umum</b>: site, waktu makan, tanggal, jenis menu. Isian tersimpan otomatis.</li>
+                  <li><b>Test Food</b>: ketik nama menu (saran muncul saat mengetik), pilih nilai 1-5, lalu salin atau kirim ke WhatsApp.</li>
+                  <li><b>Menu &amp; Kalori</b> (Breakfast dan Dinner): menu yang sama sudah terisi. Tambah foto untuk poster, kolase kode warna, dan video TV.</li>
+                  <li><b>Riwayat</b>: periksa dan betulkan kalori, ikon, dan deskripsi makanan.</li>
+                </ol>
+                <p className="hint">Isian tersinkron ke perangkat lain pada site yang sama. Tombol “Sinkron” di atas untuk mematikannya (simpan di perangkat ini saja).</p>
+                <div className="acts"><button type="button" className="p" onClick={() => setPrefs((x) => ({ ...x, help: false }))}>Mengerti, tutup</button></div>
+              </section>
+            )}
             {mock && <p className="hint">Mode coba aktif: data makanan hanya sementara dan AI berupa contoh.</p>}
             <section>
-              <h2>Info umum</h2>
-              {legacySite && (
-                <div className="warn" role="note">
-                  Isian ini sebelumnya memakai site &quot;{legacySite}&quot; lewat pilihan Lainnya. Sejak pembaruan ini nama site mengikuti login,
-                  jadi laporan sekarang memakai &quot;{site?.nama}&quot;. Kalau &quot;{legacySite}&quot; adalah site lain, minta admin mendaftarkannya,
-                  lalu masuk lewat Ganti site → Lainnya.{" "}
-                  <button type="button" className="lnk" onClick={() => setLegacySite("")}>Tutup</button>
-                </div>
-              )}
-              <div className="g1">
-                <label htmlFor="jn">Jenis menu</label>
-                <ComboInput id="jn" value={s.jn} placeholder="Pilih atau ketik sendiri" options={JENIS} onChange={(v) => up({ jn: v })} />
-              </div>
-              {s.meal === "Dinner" && (
-                <div className="g1">
-                  <label className="chk"><input type="checkbox" checked={s.live} onChange={(e) => up({ live: e.target.checked })} /> Live Cooking (khusus Dinner)</label>
-                  {s.live && <input id="live" value={s.liveMenu} placeholder="Menu yang live (mis. Menu Lalapan)" aria-label="Menu live cooking" onChange={(e) => up({ liveMenu: e.target.value })} style={{ marginTop: 6 }} />}
-                </div>
-              )}
-              <div className="g1"><label htmlFor="dt">Tanggal (otomatis hari ini)</label><input id="dt" type="date" value={s.dt} onChange={(e) => up({ dt: e.target.value })} /></div>
-              <div className="g2">
-                <div>
-                  <label htmlFor="meal">Waktu makan</label>
-                  <select id="meal" value={s.meal} onChange={(e) => up({ meal: e.target.value, mealAuto: false })}>
-                    {["Breakfast", "Lunch", "Dinner", "Supper"].map((m) => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <span className="lbl" id="site-l">Site</span>
-                  <div className="site-box" aria-labelledby="site-l">
-                    <b>{site?.nama}</b>
-                    {!openMode && <button type="button" className="lnk" onClick={() => logout()}>Ganti site</button>}
+              <button type="button" className="fold" aria-expanded={prefs.info} onClick={() => setPrefs((x) => ({ ...x, info: !x.info }))}>
+                <h2>Info umum</h2>
+                <span className="foldsum">{prefs.info ? "Tutup" : summary}</span>
+                <span className="foldic" aria-hidden="true">{prefs.info ? "▴" : "▾"}</span>
+              </button>
+              {prefs.info && (
+                <div className="foldbody">
+                  <div className="g2">
+                    <div>
+                      <label htmlFor="meal">Waktu makan</label>
+                      <select id="meal" value={s.meal} onChange={(e) => up({ meal: e.target.value, mealAuto: false })}>
+                        {["Breakfast", "Lunch", "Dinner", "Supper"].map((m) => <option key={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div><label htmlFor="dt">Tanggal</label><input id="dt" type="date" value={s.dt} onChange={(e) => up({ dt: e.target.value })} /></div>
                   </div>
+                  <label className="chk"><input type="checkbox" checked={s.mealAuto} onChange={(e) => up(e.target.checked ? { mealAuto: true, meal: mealByHour(new Date().getHours()) } : { mealAuto: false })} /> Waktu makan otomatis sesuai jam</label>
+                  <div className="note">Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis.</div>
+                  <div className="g1" style={{ marginTop: 12 }}>
+                    <label htmlFor="jn">Jenis menu</label>
+                    <ComboInput id="jn" value={s.jn} placeholder="Pilih atau ketik sendiri" options={JENIS} onChange={(v) => up({ jn: v })} />
+                  </div>
+                  {s.meal === "Dinner" && (
+                    <div className="g1">
+                      <label className="chk"><input type="checkbox" checked={s.live} onChange={(e) => up({ live: e.target.checked })} /> Live Cooking (khusus Dinner)</label>
+                      {s.live && <input id="live" value={s.liveMenu} placeholder="Menu yang live (mis. Menu Lalapan)" aria-label="Menu live cooking" onChange={(e) => up({ liveMenu: e.target.value })} style={{ marginTop: 6 }} />}
+                    </div>
+                  )}
+                  <div className="g1">
+                    <label htmlFor="site">Site</label>
+                    <select id="site" value={siteVal} onChange={(e) => pickSite(e.target.value)}>
+                      <option value={DEFAULT_SITE}>{DEFAULT_SITE}</option>
+                      {customSites.map((x) => <option key={x} value={"x:" + x}>{x}</option>)}
+                      <option value="__new">Lainnya… (ketik nama site)</option>
+                    </select>
+                  </div>
+                  {adding && (
+                    <div className="sitebox">
+                      <label htmlFor="sxi">Nama site</label>
+                      <div className="inl">
+                        <input id="sxi" value={newSite} placeholder="mis. KM 35" maxLength={40} enterKeyHint="done" autoCapitalize="characters"
+                          onChange={(e) => setNewSite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyNewSite(); } }} />
+                        <button type="button" className="p" onClick={applyNewSite}>Pakai</button>
+                      </div>
+                      <div className="note">Tiap site punya isian sendiri dan hanya tersinkron dengan perangkat lain yang memilih site yang sama (nama harus sama; huruf besar kecil tidak dibedakan).</div>
+                    </div>
+                  )}
+                  {!adding && !bcp && (
+                    <div className="sitebox">
+                      <div className="note" style={{ marginTop: 0 }}>Poster, kolase kode warna, dan video memakai tulisan <b>Site {name}</b>. Logo DH tidak dipasang; unggah logo site ini kalau ada.</div>
+                      <div className="logorow">
+                        <div className="logopv">{logo.data ? <img src={logo.data} alt={`Logo site ${name}`} /> : <span>Belum ada logo</span>}</div>
+                        <div className="logoacts">
+                          <label className="fbtn">{logo.busy ? "Memproses…" : logo.data ? "Ganti logo" : "Unggah logo site"}
+                            <input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={logo.busy}
+                              onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; const err = await logo.set(f); toast(err || "Logo dipasang di poster, kolase, dan video"); }} />
+                          </label>
+                          {logo.data && <button type="button" className="mini" onClick={() => { logo.clear(); toast("Logo dihapus"); }}>Hapus logo</button>}
+                        </div>
+                      </div>
+                      <div className="note">PNG atau JPG. Paling rapi kalau latarnya putih atau transparan.{prefs.sync ? " Logo ikut tersinkron ke perangkat lain di site ini." : ""}</div>
+                      <button type="button" className="lnkb" onClick={forgetSite}>Hapus site ini dari daftar</button>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <label className="chk"><input type="checkbox" checked={s.mealAuto} onChange={(e) => up(e.target.checked ? { mealAuto: true, meal: mealByHour(new Date().getHours()) } : { mealAuto: false })} /> Waktu makan otomatis sesuai jam</label>
-              <div className="note" style={{ marginTop: 2 }}>Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis.</div>
+              )}
             </section>
-            {s.tab === "tf" && <TestFoodTab s={s} up={up} setList={setList} sync={sync} copy={copy} wa={wa} toast={toast} />}
-            {s.tab === "kal" && <KaloriTab s={s} up={up} setRows={setRows} setSlots={setSlots} sync={sync} copy={copy} wa={wa} toast={toast} />}
+            {s.tab === "tf" && <TestFoodTab s={s} up={up} setList={setList} sync={sync} copy={copy} wa={wa} toast={toast} ns={ns} />}
+            {s.tab === "kal" && <KaloriTab s={s} up={up} setRows={setRows} setSlots={setSlots} sync={sync} copy={copy} wa={wa} toast={toast} ns={ns} brand={brand} confirm={setAsk} />}
             {s.tab === "his" && <RiwayatTab toast={toast} />}
           </>
         )}
       </main>
       <div id="toast" className={msg ? "on" : ""} role="status">{msg}</div>
+      {ask && <Confirm ask={ask} onClose={() => setAsk(null)} />}
     </>
   );
 }
