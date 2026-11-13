@@ -5,9 +5,10 @@ import { Adj, ADJ0, adjFit, Bmp, drawAdj, fixAdj } from "@/lib/canvas";
 
 // Atur satu foto kolase: geser dengan jari/mouse, putar 90°, perbesar. Bingkai di sini berbentuk sama dengan
 // kotak foto itu di kolase (w x h), jadi yang terlihat di bingkai = yang masuk kolase.
-type Props = { img: Bmp; w: number; h: number; adj?: Adj; label: string; onSave: (a?: Adj) => void; onClose: () => void };
+// pos/total/onMove (opsional): pindahkan urutan foto ini di kolase, cadangan selain menggeser ⠿ di daftar kecil.
+type Props = { img: Bmp; w: number; h: number; adj?: Adj; label: string; pos?: number; total?: number; onMove?: (d: number) => void; onSave: (a?: Adj) => void; onClose: () => void };
 
-export default function PhotoEdit({ img, w, h, adj, label, onSave, onClose }: Props) {
+export default function PhotoEdit({ img, w, h, adj, label, pos = 0, total = 1, onMove, onSave, onClose }: Props) {
   const [a, setA] = useState<Adj>(() => fixAdj(adj));
   const cv = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ id: number; px: number; py: number; ax: number; ay: number } | null>(null);
@@ -65,6 +66,15 @@ export default function PhotoEdit({ img, w, h, adj, label, onSave, onClose }: Pr
         </div>
         <label htmlFor="pezoom">Perbesar ({a.z.toFixed(1).replace(".", ",")}x)</label>
         <input id="pezoom" type="range" min={1} max={3} step={0.05} value={a.z} onChange={(e) => setA((p) => fixAdj({ ...p, z: Number(e.target.value) }))} />
+        {onMove && total > 1 && (
+          <>
+            <label style={{ marginTop: 10 }}>Urutan di kolase: {pos + 1} dari {total}</label>
+            <div className="perow">
+              <button type="button" disabled={pos <= 0} onClick={() => onMove(-1)}>◀ Lebih awal</button>
+              <button type="button" disabled={pos >= total - 1} onClick={() => onMove(1)}>Lebih akhir ▶</button>
+            </div>
+          </>
+        )}
         <button type="button" className="p" onClick={() => { onSave(same ? undefined : a); onClose(); }}>Selesai</button>
         <button type="button" disabled={same} onClick={() => setA(ADJ0)}>Kembalikan ke awal</button>
         <button type="button" onClick={onClose}>Batal</button>

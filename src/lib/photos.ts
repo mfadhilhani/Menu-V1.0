@@ -80,7 +80,28 @@ export function usePhotoList(key: string) {
   const adjust = useCallback((id: string, adj?: Adj) => {
     setItems((prev) => { const n = prev.map((p) => (p.id === id ? { ...p, adj } : p)); persist(n); return n; });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return { items, add, remove, adjust, busy };
+  // Ubah urutan foto (urutan di daftar = urutan di kolase). ids = urutan baru.
+  const reorder = useCallback((ids: string[]) => {
+    setItems((prev) => {
+      const by = new Map(prev.map((p) => [p.id, p]));
+      const n = ids.map((id) => by.get(id)).filter(Boolean) as Photo[];
+      if (n.length !== prev.length) return prev;
+      persist(n);
+      return n;
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Pindahkan satu foto satu langkah (d = -1 lebih awal, 1 lebih akhir).
+  const move = useCallback((id: string, d: number) => {
+    setItems((prev) => {
+      const i = prev.findIndex((p) => p.id === id), j = i + d;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const n = [...prev];
+      [n[i], n[j]] = [n[j], n[i]];
+      persist(n);
+      return n;
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return { items, add, remove, adjust, reorder, move, busy };
 }
 
 // Satu foto per kotak menu poster, dikunci dengan id kotak (tetap benar saat urutan digeser).

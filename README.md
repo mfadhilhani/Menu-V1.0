@@ -19,6 +19,13 @@ Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, k
 - Hanya berlaku untuk kolase Test Food. Foto di poster menu dan kolase laporan kalori belum bisa diatur.
 - File: `src/components/PhotoEdit.tsx` (baru), `TfCollage.tsx`, `src/lib/canvas.ts` (`drawAdj`, `tfCells`), `src/lib/photos.ts`.
 
+**Urutan foto bisa digeser** (kolase Test Food dan foto laporan kalori):
+
+- Urutan di daftar kecil = urutan di kolase. Tahan dan geser **⠿** di pojok foto untuk memindah urutan, sama seperti baris menu. Nomor urut tampil di tiap foto.
+- Cadangan tanpa menggeser: buka **Atur**, lalu **◀ Lebih awal** / **Lebih akhir ▶**.
+- Urutan tersimpan di perangkat itu bersama fotonya.
+- Yang diuji: tombol Lebih awal/Lebih akhir dan penyimpanan urutan. Menggeser ⠿ memakai pustaka yang sama dengan baris menu, tetapi **belum saya uji** (pustakanya tidak bisa dipasang di lingkungan uji).
+
 #### 2. Supper sampai 23.59, hari berganti pukul 00.00
 
 - Waktu makan otomatis: Breakfast **00.00**-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-**23.59**.
