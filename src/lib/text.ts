@@ -138,9 +138,10 @@ export { icon, ICON_CHOICES, ICON_GROUPS } from "./icons";
 // Kunci site: dipakai untuk memisahkan isian, logo, dan sinkronisasi per site ("BCP" -> "bcp", "KM 35" -> "km 35").
 export const siteKeyOf = (name: string) => norm(name).slice(0, 40).trim();
 
-// Waktu makan menurut jam: Breakfast 03-08, Lunch 09-13, Dinner 14-17, Supper 18-23 (00-02 dianggap Supper).
+// Waktu makan menurut jam: Breakfast 00-08, Lunch 09-13, Dinner 14-17, Supper 18-23.
+// Supper berakhir pukul 23.59; lewat tengah malam sudah hari baru, jadi kembali ke Breakfast.
 export function mealByHour(h: number) {
-  if (h >= 3 && h <= 8) return "Breakfast";
+  if (h <= 8) return "Breakfast";
   if (h >= 9 && h <= 13) return "Lunch";
   if (h >= 14 && h <= 17) return "Dinner";
   return "Supper";
@@ -148,10 +149,12 @@ export function mealByHour(h: number) {
 export const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jum’at", "Sabtu"];
 export const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 export const pad = (n: number) => String(n).padStart(2, "0");
-// Hari kerja: berganti pukul 03.00 (awal Breakfast), jadi Supper yang lewat tengah malam masih terhitung hari yang sama.
+// Hari kerja: berganti tengah malam (pukul 00.00), bersamaan dengan berakhirnya Supper (23.59).
 // Dipakai untuk menentukan kapan draf mulai lagi dari pola dan kapan foto dihapus.
+// DAY_START_HOUR = jam pergantian hari; ubah di sini kalau suatu saat perlu digeser lagi.
+export const DAY_START_HOUR = 0;
 export function workDay(now = new Date()) {
-  const d = new Date(now.getTime() - 3 * 3600000);
+  const d = new Date(now.getTime() - DAY_START_HOUR * 3600000);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 export function todayStr() {

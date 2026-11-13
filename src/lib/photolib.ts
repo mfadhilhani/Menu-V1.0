@@ -48,3 +48,16 @@ export async function libDel(key: string) {
   if (await serverOn()) fetch(`/api/photo?key=${encodeURIComponent(key)}`, { method: "DELETE" }).catch(() => {});
 }
 export const libCount = async () => (await idbKeys("lib:")).length;
+
+// ---------- untuk halaman "Simpanan foto menu" ----------
+// Daftar kunci (nama menu yang dinormalkan) yang fotonya ada di perangkat ini, urut abjad.
+export const libKeys = async () => (await idbKeys("lib:")).map((k) => k.slice(4)).sort((a, b) => a.localeCompare(b));
+// Foto di perangkat ini saja (tidak mengambil dari server).
+export const libLocal = async (key: string) => { const v = await idbGet<Blob>(`lib:${key}`); return v instanceof Blob ? v : null; };
+// Hapus semua simpanan di perangkat ini saja. Salinan di server (kalau ada) tidak dihapus,
+// supaya satu HP tidak bisa mengosongkan simpanan bersama dengan sekali ketuk.
+export async function libClearLocal() {
+  const keys = await idbKeys("lib:");
+  await Promise.all(keys.map((k) => idbDel(k)));
+  return keys.length;
+}

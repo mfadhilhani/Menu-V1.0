@@ -99,7 +99,7 @@ export function useDraftSync({ s, setS, loaded, authed, enabled, site, day, meta
 
   const pull = useCallback(async (): Promise<void> => {
     if (!activeRef.current || busy.current) return;
-    if (workDay() > day.current) { location.reload(); return; } // sudah lewat pukul 03.00: mulai hari baru
+    if (workDay() > day.current) { location.reload(); return; } // sudah lewat tengah malam: mulai hari baru
     const g = gen.current;
     busy.current = true;
     let r: Remote | null = null, ok = false;

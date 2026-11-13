@@ -1,6 +1,6 @@
 // Penyimpanan gambar di browser (IndexedDB) supaya tidak hilang saat reload.
 // Ada dua jenis kunci:
-// - sementara (foto poster hari ini, kolase): dihapus saat dibuka di hari kerja baru (lewat pukul 03.00) dan saat "Mulai baru";
+// - sementara (foto poster hari ini, kolase): dihapus saat dibuka di hari kerja baru (lewat pukul 00.00) dan saat "Mulai baru";
 // - tetap (awalan "logo:" = logo site, "lib:" = simpanan foto per nama menu): tidak ikut dihapus.
 import { workDay } from "./text";
 

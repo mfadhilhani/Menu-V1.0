@@ -4,6 +4,37 @@ Versi Next.js dari situs Tesfood. Data makanan (nama, deskripsi maks. 14 kata, k
 
 ## Catatan perbaikan
 
+### Pembaruan 5 (13 November 2026)
+
+**Status pengujian.** Sama seperti Pembaruan 4: diuji dengan bundel esbuild di Chrome ukuran HP (geser, putar, batal, simpan, muat ulang, jam makan, dan halaman simpanan foto lulus), `npm run build` belum saya jalankan sendiri. Menggeser dengan jari sungguhan (bukan tiruan mouse) belum dicoba.
+
+#### 1. Foto kolase Test Food bisa digeser, diputar, dan diperbesar
+
+- Ketuk foto di daftar kecil (tombol **Atur**) atau langsung di kolase. Muncul bingkai yang bentuknya sama dengan kotak foto itu di kolase.
+- **Geser** foto dengan jari untuk memilih bagian yang tampil (atau tombol panah di keyboard). **Putar kiri/kanan** per 90°. **Perbesar** sampai 3x dengan penggeser.
+- **Selesai** menyimpan, **Batal** membuang perubahan, **Kembalikan ke awal** menghapus pengaturan.
+- Pengaturan disimpan bersama fotonya di perangkat itu, jadi bertahan saat halaman dimuat ulang, dan ikut terhapus bersama fotonya saat hari berganti.
+- Foto hanya bisa digeser ke arah yang memang terpotong. Kalau foto pas dengan bingkai, perbesar dulu.
+- Kalau jumlah foto berubah, bentuk kotak kolase ikut berubah, jadi bagian yang tampil bisa sedikit bergeser.
+- Hanya berlaku untuk kolase Test Food. Foto di poster menu dan kolase laporan kalori belum bisa diatur.
+- File: `src/components/PhotoEdit.tsx` (baru), `TfCollage.tsx`, `src/lib/canvas.ts` (`drawAdj`, `tfCells`), `src/lib/photos.ts`.
+
+#### 2. Supper sampai 23.59, hari berganti pukul 00.00
+
+- Waktu makan otomatis: Breakfast **00.00**-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-**23.59**.
+- Pergantian hari kerja ikut pindah dari pukul 03.00 ke **00.00**: isian kembali ke pola dan foto harian terhapus tepat tengah malam. Kalau tidak dipindah, antara 00.00 dan 03.00 web akan menampilkan Breakfast berisi isian kemarin.
+- Akibatnya: laporan Supper yang belum dikirim sebelum 00.00 ikut dikosongkan saat halaman dimuat ulang atau tersinkron setelah tengah malam. Kirim sebelum 23.59.
+- Jam pergantian hari ada di satu tempat: `DAY_START_HOUR` di `src/lib/text.ts`. Catatan "pukul 03.00" di Pembaruan 3 di bawah sudah tidak berlaku.
+
+#### 3. Halaman "Simpanan foto menu" (tab Riwayat)
+
+- Letaknya di bawah daftar makanan; tombol **Ke simpanan foto menu ↓** di atas tab Riwayat langsung menggulir ke sana.
+- Menampilkan semua foto yang tersimpan per nama menu di perangkat itu, lengkap dengan nama menu dan kolom cari (muncul kalau lebih dari 8 foto). Gambar dimuat 24 per halaman.
+- **✕** di tiap foto menghapus foto itu dari simpanan (di perangkat itu, dan di server kalau `PHOTO_DIR` dipakai), dengan pop up konfirmasi.
+- **Hapus semua di perangkat ini** hanya menghapus salinan di perangkat itu. Salinan di server sengaja tidak ikut dihapus, supaya satu HP tidak bisa mengosongkan simpanan bersama dengan sekali ketuk.
+- Foto yang sudah terpasang di poster hari ini tidak ikut terlepas saat simpanannya dihapus.
+- File: `src/components/PhotoLibSection.tsx` (baru), `src/lib/photolib.ts`, `App.tsx`, `globals.css`.
+
 ### Pembaruan 4 (13 November 2026)
 
 **Status pengujian.** `npm install` tidak bisa dijalankan di lingkungan tempat pembaruan ini dibuat, jadi `npm run build` (Next.js) **belum dijalankan**. Yang sudah diuji: seluruh kode klien dan route API dibundel dengan esbuild dan dijalankan di Chrome ukuran HP dengan server tiruan (mode `MOCK_BACKEND`), termasuk 19 skenario otomatis (sinkron dua perangkat, pindah site, logo, simpanan foto, sinkron mati/nyala, Mulai baru). Yang **belum** diuji: build Next.js asli, Google Sheets asli (termasuk pemindahan tab `draf` lama), drag-and-drop (@dnd-kit diganti tiruan saat uji), video dengan logo site, dan font Google di poster (uji memakai font cadangan). Jalankan `npm install && npm run build` dan coba sekali di HP sebelum dipakai harian.
@@ -237,11 +268,11 @@ File yang diubah: `src/lib/text.ts`, `src/lib/gemini.ts`, `src/app/api/foods/res
 | Data | Disimpan di | Terlihat di perangkat lain? |
 |---|---|---|
 | Data makanan (nama, deskripsi, kkal, ikon, status) | Google Sheet, lewat server | Ya. Semua perangkat membaca Sheet yang sama (server menyimpan salinan 60 detik untuk menghemat kuota, jadi perubahan dari perangkat lain bisa terlambat sampai 1 menit). |
-| Isian (Info umum, Test Food, Daftar makanan, teks poster, kesimpulan) | Tab `draf` di Google Sheet (satu baris per site), plus salinan di `localStorage` browser (kunci `tfm2_d:<site>`) | Ya, dengan perangkat pada site yang sama, selama sinkronisasi menyala. Lihat [Sinkronisasi isian](#sinkronisasi-isian). Besoknya (setelah pukul 03.00) mulai lagi dari pola. |
+| Isian (Info umum, Test Food, Daftar makanan, teks poster, kesimpulan) | Tab `draf` di Google Sheet (satu baris per site), plus salinan di `localStorage` browser (kunci `tfm2_d:<site>`) | Ya, dengan perangkat pada site yang sama, selama sinkronisasi menyala. Lihat [Sinkronisasi isian](#sinkronisasi-isian). Besoknya (setelah pukul 00.00) mulai lagi dari pola. |
 | Pilihan perangkat (site, tab, sinkron nyala/mati, daftar site lain) | `localStorage` browser (kunci `tfm2_prefs`) | Tidak. |
 | Jenis menu yang kamu ketik sendiri | `localStorage` browser (kunci terpisah) | Tidak. |
 | Logo site selain BCP | Tab `logo` di Google Sheet, plus IndexedDB browser | Ya, pada site yang sama. |
-| Foto poster hari ini, kolase Test Food, foto laporan kalori | IndexedDB browser, basis data `tesfoodNext` | Tidak. Hanya di browser itu, dan dihapus otomatis saat hari kerja berganti (pukul 03.00). |
+| Foto poster hari ini, kolase Test Food, foto laporan kalori | IndexedDB browser, basis data `tesfoodNext` | Tidak. Hanya di browser itu, dan dihapus otomatis saat hari berganti (pukul 00.00). |
 | Simpanan foto per nama menu | IndexedDB browser (tidak dihapus harian); juga folder `PHOTO_DIR` di server kalau diisi | Hanya kalau `PHOTO_DIR` diisi. Lihat [Foto menu yang muncul lagi](#foto-menu-yang-muncul-lagi). |
 | Poster PNG dan video MP4 | Tidak disimpan di server | Dibuat lalu langsung diunduh atau dibagikan dari perangkat itu. Video disusun di `/api/video` dan dikirim balik tanpa disimpan. |
 | Login PIN | Cookie per browser (30 hari) | Tidak. Tiap perangkat login sendiri. |
@@ -315,7 +346,7 @@ Video TV memakai paket `ffmpeg-static` (terpasang lewat `npm install`); `next.co
 ## Info umum
 - **Jenis menu**: pilih dari daftar (Reguler, Tematik, BBQ, Healthy Food) atau ketik sendiri; yang kamu ketik diingat di daftar.
 - **Live Cooking** (khusus Dinner): pilihan ini hanya muncul saat waktu makan Dinner. Centang, lalu isi menu yang live. Baris `👩‍🍳 Live Cooking : …` muncul di laporan kalori, dan `*Live Cooking : …*` di laporan Test Food (di antara judul dan tanggal). Di Breakfast, Lunch, dan Supper baris ini tidak pernah ditulis.
-- **Waktu makan otomatis** mengikuti jam: Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis; centang lagi untuk kembali ke jam.
+- **Waktu makan otomatis** mengikuti jam: Breakfast 00.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-23.59. Memilih sendiri mematikan otomatis; centang lagi untuk kembali ke jam.
 - Nama makanan otomatis ditulis **Capitalize Each Word** (singkatan 1-3 huruf besar seperti BBQ tetap, dan penulisan merek seperti McFlurry atau KitKat juga tetap).
 
 ## Pola daftar makanan dan sinkronisasi
@@ -325,7 +356,7 @@ Tiap waktu makan punya daftarnya sendiri, dengan baris tetap yang terisi otomati
 - **Lunch dan Supper**: 1 Nasi Putih, 2-5 menu yang berubah, 6 Sambal. Hanya Test Food (tab Menu & Kalori tidak dipakai).
 
 Baris yang sama (nomor 2-5, dan pada Dinner juga Buah dan Kue) **tersinkron** antara Test Food, Daftar makanan, dan Poster menu: isi di salah satu, yang lain langsung terisi (nama, kalori, dan deskripsi dari Sheet). Poster Breakfast (4 menu) = nomor 2-5; poster Dinner (6 menu) = nomor 2, 3, 4, 5, 8, 9. Sinkronisasi mengikuti baris (bukan posisinya), jadi menggeser urutan di satu daftar tidak mengubah urutan daftar lain. Baris yang kamu tambah sendiri tidak ikut tersinkron.
-Draf dari hari kerja sebelumnya (berganti pukul 03.00) memulai lagi dari pola (menu kemarin tidak terbawa). Daftar makanan dari draf versi lama dibuang saat pembaruan ini.
+Draf dari hari sebelumnya (berganti pukul 00.00) memulai lagi dari pola (menu kemarin tidak terbawa). Daftar makanan dari draf versi lama dibuang saat pembaruan ini.
 
 ## Pukul (Test Food)
 Di tab Test Food, centang "Tampilkan Pukul" untuk menambah baris `*Pukul : 10.34 WITA*` tepat di bawah tanggal. Jam terisi dari jam sekarang saat dicentang dan bisa diubah; zona waktu WIB/WITA/WIT bisa dipilih (bawaan WITA). Hanya berlaku di laporan Test Food.

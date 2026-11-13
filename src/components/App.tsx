@@ -13,6 +13,7 @@ import Confirm, { Ask } from "./Confirm";
 import { useFoods } from "./FoodsContext";
 import KaloriTab from "./KaloriTab";
 import Login from "./Login";
+import PhotoLibSection from "./PhotoLibSection";
 import RiwayatTab from "./RiwayatTab";
 import TestFoodTab from "./TestFoodTab";
 import { SyncMeta, useDraftSync } from "./useDraftSync";
@@ -29,7 +30,7 @@ export default function App() {
   const [adding, setAdding] = useState(false);   // sedang mengetik nama site baru
   const [newSite, setNewSite] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const day = useRef(workDay());                 // hari kerja draf ini (berganti pukul 03.00)
+  const day = useRef(workDay());                 // hari kerja draf ini (berganti pukul 00.00)
   const meta = useRef<SyncMeta>({ ver: 0, base: "" });
   const sRef = useRef(s);
   const resetting = useRef(false);
@@ -294,7 +295,7 @@ export default function App() {
                   <li><b>Cek Info umum</b>: site, waktu makan, tanggal, jenis menu. Isian tersimpan otomatis.</li>
                   <li><b>Test Food</b>: ketik nama menu (saran muncul saat mengetik), pilih nilai 1-5, lalu salin atau kirim ke WhatsApp.</li>
                   <li><b>Menu &amp; Kalori</b> (Breakfast dan Dinner): menu yang sama sudah terisi. Tambah foto untuk poster, kolase kode warna, dan video TV.</li>
-                  <li><b>Riwayat</b>: periksa dan betulkan kalori, ikon, dan deskripsi makanan.</li>
+                  <li><b>Riwayat</b>: periksa dan betulkan kalori, ikon, dan deskripsi makanan; lihat dan hapus simpanan foto menu.</li>
                 </ol>
                 <p className="hint">Isian tersinkron ke perangkat lain pada site yang sama. Tombol “Sinkron” di atas untuk mematikannya (simpan di perangkat ini saja).</p>
                 <div className="acts"><button type="button" className="p" onClick={() => setPrefs((x) => ({ ...x, help: false }))}>Mengerti, tutup</button></div>
@@ -319,7 +320,7 @@ export default function App() {
                     <div><label htmlFor="dt">Tanggal</label><input id="dt" type="date" value={s.dt} onChange={(e) => up({ dt: e.target.value })} /></div>
                   </div>
                   <label className="chk"><input type="checkbox" checked={s.mealAuto} onChange={(e) => up(e.target.checked ? { mealAuto: true, meal: mealByHour(new Date().getHours()) } : { mealAuto: false })} /> Waktu makan otomatis sesuai jam</label>
-                  <div className="note">Breakfast 03.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-02.59. Memilih sendiri mematikan otomatis.</div>
+                  <div className="note">Breakfast 00.00-08.59, Lunch 09.00-13.59, Dinner 14.00-17.59, Supper 18.00-23.59. Hari berganti pukul 00.00. Memilih sendiri mematikan otomatis.</div>
                   <div className="g1" style={{ marginTop: 12 }}>
                     <label htmlFor="jn">Jenis menu</label>
                     <ComboInput id="jn" value={s.jn} placeholder="Pilih atau ketik sendiri" options={JENIS} onChange={(v) => up({ jn: v })} />
@@ -371,7 +372,15 @@ export default function App() {
             </section>
             {s.tab === "tf" && <TestFoodTab s={s} up={up} setList={setList} sync={sync} copy={copy} wa={wa} toast={toast} ns={ns} />}
             {s.tab === "kal" && <KaloriTab s={s} up={up} setRows={setRows} setSlots={setSlots} sync={sync} copy={copy} wa={wa} toast={toast} ns={ns} brand={brand} confirm={setAsk} />}
-            {s.tab === "his" && <RiwayatTab toast={toast} />}
+            {s.tab === "his" && (
+              <>
+                <div className="acts" style={{ margin: "0 0 12px" }}>
+                  <button type="button" onClick={() => document.getElementById("simpanan-foto")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Ke simpanan foto menu ↓</button>
+                </div>
+                <RiwayatTab toast={toast} />
+                <PhotoLibSection toast={toast} confirm={setAsk} />
+              </>
+            )}
           </>
         )}
       </main>

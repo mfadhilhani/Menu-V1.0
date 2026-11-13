@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bmp } from "./canvas";
+import { Adj, Bmp, fixAdj } from "./canvas";
 import { idbDel, idbGet, idbSet } from "./idb";
 import { uid } from "./text";
 
 // auto = foto diambil otomatis dari simpanan untuk nama menu itu (bukan dipilih tangan hari ini).
-export type Photo = { id: string; file: File; url: string; bmp: Bmp; auto?: string };
+// adj = pengaturan geser/putar/perbesar di kolase Test Food (kosong = di tengah, tidak diputar).
+export type Photo = { id: string; file: File; url: string; bmp: Bmp; auto?: string; adj?: Adj };
 
 // Foto kamera HP bisa 4000 px lebih (5-12 MB). Dikecilkan dulu supaya penyimpanan browser tidak cepat penuh
 // dan poster/kolase tidak membuat HP kehabisan memori. Poster paling besar hanya butuh sekitar 800 px per foto.
@@ -49,14 +50,20 @@ export function usePhotoList(key: string) {
     let dead = false;
     setItems((prev) => { prev.forEach(free); return prev.length ? [] : prev; }); // pindah site: foto site lama tidak ikut tampil
     (async () => {
-      const fs = await idbGet<File[]>(key);
+      // Disimpan sebagai { f, adj } (versi lama menyimpan File saja; keduanya dibaca).
+      const fs = await idbGet<(File | { f: File; adj?: Adj })[]>(key);
       if (dead || !Array.isArray(fs)) return;
-      const ps = (await Promise.all(fs.map((f) => mk(f)))).filter(Boolean) as Photo[];
+      const ps = (await Promise.all(fs.map(async (v) => {
+        const f = v instanceof Blob ? v : v?.f;
+        const p = f ? await mk(f) : null;
+        if (p && !(v instanceof Blob) && v.adj) p.adj = fixAdj(v.adj);
+        return p;
+      }))).filter(Boolean) as Photo[];
       if (!dead) setItems(ps);
     })();
     return () => { dead = true; };
   }, [key]);
-  const persist = (l: Photo[]) => { if (l.length) idbSet(key, l.map((p) => p.file)); else idbDel(key); };
+  const persist = (l: Photo[]) => { if (l.length) idbSet(key, l.map((p) => ({ f: p.file, adj: p.adj }))); else idbDel(key); };
   // Mengembalikan jumlah foto yang tidak bisa dibaca (mis. format yang tidak didukung browser).
   const add = useCallback(async (fs: File[]) => {
     setBusy(true);
@@ -69,7 +76,11 @@ export function usePhotoList(key: string) {
   const remove = useCallback((id: string) => {
     setItems((prev) => { free(prev.find((p) => p.id === id)); const n = prev.filter((p) => p.id !== id); persist(n); return n; });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return { items, add, remove, busy };
+  // Simpan pengaturan geser/putar/perbesar satu foto (undefined = kembali ke bawaan).
+  const adjust = useCallback((id: string, adj?: Adj) => {
+    setItems((prev) => { const n = prev.map((p) => (p.id === id ? { ...p, adj } : p)); persist(n); return n; });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return { items, add, remove, adjust, busy };
 }
 
 // Satu foto per kotak menu poster, dikunci dengan id kotak (tetap benar saat urutan digeser).

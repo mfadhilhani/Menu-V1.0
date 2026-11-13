@@ -52,7 +52,7 @@ export function loadPrefs(): Prefs {
 }
 export const savePrefs = (p: Prefs) => write(PKEY, p);
 
-// Muat isian site ini. Isian dari hari kerja sebelumnya (berganti pukul 03.00) memulai lagi dari pola:
+// Muat isian site ini. Isian dari hari kerja sebelumnya (berganti pukul 00.00) memulai lagi dari pola:
 // menu kemarin tidak terbawa, tapi pengaturan (jenis menu, camp, kode site, zona, format, kesimpulan) tetap dipakai.
 export function loadDraft(site: string, sxi: string, tab: State["tab"]): { state: State; meta: Meta } {
   const fresh: State = { ...initState(site, sxi), tab };

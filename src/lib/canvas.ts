@@ -304,24 +304,52 @@ export async function tvFrames(items: SlotView[], info: { jenis: string; site: s
 }
 
 // ---------- kolase foto ----------
-// Kolase Test Food (grid rapat, 1080 px).
-export function drawTfCollage(cv: HTMLCanvasElement, imgs: Bmp[]) {
-  const n = imgs.length;
-  if (!n) return false;
+// Pengaturan satu foto di dalam kotaknya: x, y = geseran (-1..1, 0 = tengah; 1 = mentok), r = putaran (kelipatan 90°,
+// 0..3 searah jarum jam), z = perbesaran (1 = pas menutup kotak, maks. 3).
+export type Adj = { x: number; y: number; r: number; z: number };
+export const ADJ0: Adj = { x: 0, y: 0, r: 0, z: 1 };
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+export const fixAdj = (a?: Partial<Adj> | null): Adj => ({
+  x: clamp(Number(a?.x) || 0, -1, 1), y: clamp(Number(a?.y) || 0, -1, 1),
+  r: (((Math.round(Number(a?.r) || 0) % 4) + 4) % 4), z: clamp(Number(a?.z) || 1, 1, 3),
+});
+// Skala gambar dan sisa gambar di luar kotak (ox, oy) pada tiap sisi: itulah jarak yang bisa digeser.
+export function adjFit(im: Bmp, w: number, h: number, adj: Adj) {
+  const odd = adj.r % 2 === 1, ew = odd ? hOf(im) : wOf(im), eh = odd ? wOf(im) : hOf(im);
+  const s = Math.max(w / ew, h / eh) * adj.z;
+  return { s, ox: Math.max(0, (ew * s - w) / 2), oy: Math.max(0, (eh * s - h) / 2) };
+}
+// Gambar foto ke kotak (x, y, w, h) dengan pengaturan geser/putar/perbesar; bagian di luar kotak dipotong.
+export function drawAdj(c: Ctx, im: Bmp, x: number, y: number, w: number, h: number, a?: Adj | null) {
+  const adj = fixAdj(a), { s, ox, oy } = adjFit(im, w, h, adj);
+  c.save();
+  c.beginPath(); c.rect(x, y, w, h); c.clip();
+  c.translate(x + w / 2 + adj.x * ox, y + h / 2 + adj.y * oy);
+  c.rotate((adj.r * Math.PI) / 2);
+  c.imageSmoothingQuality = "high";
+  c.drawImage(im, (-wOf(im) * s) / 2, (-hOf(im) * s) / 2, wOf(im) * s, hOf(im) * s);
+  c.restore();
+}
+// Susunan kotak kolase Test Food (grid rapat, lebar 1080 px) untuk n foto.
+export function tfCells(n: number) {
   const cols = n <= 3 ? n : n === 4 ? 2 : n <= 6 ? 3 : 4, rows = Math.ceil(n / cols), W = 1080, g = 4;
   const cw = (W - g * (cols - 1)) / cols;
   const h = n <= 3 ? 470 : cols === 2 ? Math.round(cw * 0.75) : Math.round((cw * 4) / 3);
-  cv.width = W; cv.height = rows * h + (rows - 1) * g;
-  const c = ctx2d(cv); c.fillStyle = "#111"; c.fillRect(0, 0, cv.width, cv.height);
-  let k = 0;
-  for (let r = 0; r < rows; r++) {
+  const cells: { x: number; y: number; w: number; h: number }[] = [];
+  for (let r = 0, k = 0; r < rows; r++) {
     const cnt = Math.min(cols, n - k), w = (W - g * (cnt - 1)) / cnt;
-    for (let j = 0; j < cnt; j++, k++) {
-      const im = imgs[k], iw = wOf(im), ih = hOf(im), x = j * (w + g), y = r * (h + g);
-      const s = Math.max(w / iw, h / ih), sw = w / s, sh = h / s;
-      c.drawImage(im, (iw - sw) / 2, (ih - sh) / 2, sw, sh, x, y, w, h);
-    }
+    for (let j = 0; j < cnt; j++, k++) cells.push({ x: j * (w + g), y: r * (h + g), w, h });
   }
+  return { W, H: rows * h + (rows - 1) * g, cells };
+}
+// Kolase Test Food. adjs[i] = pengaturan foto ke-i (boleh kosong).
+export function drawTfCollage(cv: HTMLCanvasElement, imgs: Bmp[], adjs: (Adj | undefined)[] = []) {
+  const n = imgs.length;
+  if (!n) return false;
+  const L = tfCells(n);
+  cv.width = L.W; cv.height = L.H;
+  const c = ctx2d(cv); c.fillStyle = "#111"; c.fillRect(0, 0, cv.width, cv.height);
+  L.cells.forEach((b, k) => drawAdj(c, imgs[k], b.x, b.y, b.w, b.h, adjs[k]));
   return true;
 }
 // Kolase satu baris (laporan kalori): tinggi sama, lebar menyesuaikan.
